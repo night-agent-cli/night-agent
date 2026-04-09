@@ -2,7 +2,7 @@
 .DS_Store
 
 # Build output
-guardian
+/guardian
 /dist/
 
 # Go
