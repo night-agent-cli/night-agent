@@ -105,6 +105,8 @@ func (s *Server) handle(conn net.Conn) {
 	}
 	_ = s.logger.Write(event)
 
+	logDecision(result.Decision, req.Command, result.Reason)
+
 	resp := Response{
 		Decision: string(result.Decision),
 		Reason:   result.Reason,
@@ -116,4 +118,24 @@ func (s *Server) handle(conn net.Conn) {
 func writeError(conn net.Conn, msg string) {
 	resp := Response{Decision: string(policy.DecisionBlock), Reason: msg}
 	_ = json.NewEncoder(conn).Encode(resp)
+}
+
+func logDecision(decision policy.Decision, command, reason string) {
+	icon := map[policy.Decision]string{
+		policy.DecisionAllow:   "✓",
+		policy.DecisionBlock:   "✗",
+		policy.DecisionAsk:     "?",
+		policy.DecisionSandbox: "⬡",
+	}[decision]
+
+	cmd := command
+	if len(cmd) > 60 {
+		cmd = cmd[:57] + "..."
+	}
+
+	if reason != "" {
+		fmt.Printf("[%s] %s  →  %s\n", icon, cmd, reason)
+	} else {
+		fmt.Printf("[%s] %s\n", icon, cmd)
+	}
 }
