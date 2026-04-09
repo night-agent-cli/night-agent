@@ -1,0 +1,42 @@
+version: 1
+
+rules:
+  - id: block_sudo
+    when:
+      action_type: shell
+      command_matches: ["sudo *"]
+    match_type: glob
+    decision: block
+    reason: "sudo è disabilitato per gli agenti AI"
+
+  - id: block_rm_rf
+    when:
+      action_type: shell
+      command_matches: ["rm -rf *", "rm -fr *"]
+    match_type: glob
+    decision: ask
+    reason: "cancellazione ricorsiva richiede conferma"
+
+  - id: block_curl_pipe
+    when:
+      action_type: shell
+      command_matches: ["curl * | *", "wget * | *"]
+    match_type: glob
+    decision: block
+    reason: "esecuzione di script remoti non è consentita"
+
+  - id: block_sensitive_paths
+    when:
+      action_type: file
+      path_matches: ["~/.ssh/*", "~/.aws/*", "**/.env", "**/.env.*"]
+    match_type: glob
+    decision: block
+    reason: "accesso a file sensibili non è consentito"
+
+  - id: ask_git_push_main
+    when:
+      action_type: git
+      command_matches: ["git push * main", "git push * master", "git push --force *"]
+    match_type: glob
+    decision: ask
+    reason: "push su branch protetto richiede conferma"
