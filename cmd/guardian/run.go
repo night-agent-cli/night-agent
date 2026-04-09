@@ -7,15 +7,20 @@ import (
 	"path/filepath"
 
 	"github.com/pietroperona/agent-guardian/internal/intercept"
+	"github.com/pietroperona/agent-guardian/internal/shim"
 	"github.com/spf13/cobra"
 )
 
 var runCmd = &cobra.Command{
 	Use:   "run <agente> [args...]",
 	Short: "Avvia un agente AI sotto la protezione di Guardian",
-	Long: `Avvia un agente AI iniettando la libreria di interception.
-Ogni comando shell eseguito dall'agente viene intercettato e valutato
-dalla policy prima dell'esecuzione.
+	Long: `Avvia un agente AI con protezione attiva via due meccanismi:
+
+  1. PATH shims — intercetta i comandi eseguiti dall'agente via shell
+     (funziona con tutti gli agenti, incluso Claude Code con Hardened Runtime)
+
+  2. DYLD_INSERT_LIBRARIES — intercetta syscall di processo a livello C
+     (funziona per agenti senza Hardened Runtime: node, python3, ecc.)
 
 Esempi:
   guardian run claude
@@ -38,16 +43,31 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	guardianDir := filepath.Join(home, ".guardian")
 	socketPath := filepath.Join(guardianDir, "guardian.sock")
 
-	// verifica che il daemon sia in esecuzione
 	if !isDaemonRunning(socketPath) {
 		return fmt.Errorf("daemon non in esecuzione — avvia prima 'guardian start' in un altro terminale")
 	}
 
-	// cerca la dylib nella stessa directory del binario o nella root del progetto
+	shimDir := shim.ShimDir(guardianDir)
+	shimBinary := filepath.Join(shimDir, shim.ShimBinaryName)
+
+	env := os.Environ()
+
+	// PATH shims: funzionano con tutti gli agenti indipendentemente da Hardened Runtime
+	if _, err := os.Stat(shimBinary); err == nil {
+		env = shim.PrependPath(env, shimDir)
+		env = append(env, "GUARDIAN_SHIM_DIR="+shimDir)
+		env = append(env, "GUARDIAN_SOCKET="+socketPath)
+		fmt.Printf("guardian: shims    → %s\n", shimDir)
+	} else {
+		fmt.Printf("guardian: avviso — shim dir non trovata (%s)\n", shimDir)
+		fmt.Printf("guardian: esegui 'make shim' per abilitare l'interception PATH\n")
+	}
+
+	// DYLD: copertura aggiuntiva per agenti senza Hardened Runtime (node, python3...)
 	binaryDir := filepath.Dir(os.Args[0])
-	dylibPath, err := findDylibCandidates(binaryDir)
-	if err != nil {
-		return err
+	if dylibPath, err := findDylibCandidates(binaryDir); err == nil {
+		env = intercept.BuildEnv(env, dylibPath, socketPath)
+		fmt.Printf("guardian: dylib    → %s\n", dylibPath)
 	}
 
 	agentBinary, err := exec.LookPath(args[0])
@@ -55,11 +75,8 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("agente '%s' non trovato nel PATH: %w", args[0], err)
 	}
 
-	env := intercept.BuildEnv(os.Environ(), dylibPath, socketPath)
-
 	fmt.Printf("guardian: avvio '%s' con interception attiva\n", args[0])
-	fmt.Printf("guardian: dylib  → %s\n", dylibPath)
-	fmt.Printf("guardian: socket → %s\n\n", socketPath)
+	fmt.Printf("guardian: socket   → %s\n\n", socketPath)
 
 	agentCmd := exec.Command(agentBinary, args[1:]...)
 	agentCmd.Env = env

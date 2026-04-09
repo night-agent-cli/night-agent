@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/pietroperona/agent-guardian/internal/shell"
+	"github.com/pietroperona/agent-guardian/internal/shim"
 	"github.com/spf13/cobra"
 )
 
@@ -46,8 +47,35 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("errore iniezione hook shell: %w", err)
 	}
 	fmt.Printf("hook iniettato in: %s\n", rcPath)
+
+	// installa PATH shims — copertura agent-agnostica (funziona anche con Claude Code)
+	shimDir := shim.ShimDir(guardianDir)
+	shimBinary := filepath.Join(shimDir, shim.ShimBinaryName)
+	if err := installShims(guardianDir, shimBinary); err != nil {
+		// non bloccare l'init: gli shims sono opzionali se il binario non è ancora compilato
+		fmt.Printf("avviso: shims non installati (%v)\n", err)
+		fmt.Printf("        esegui 'make shim && guardian init' per abilitarli\n")
+	} else {
+		fmt.Printf("shims installati in: %s\n", shimDir)
+	}
+
 	fmt.Println("\nguardian inizializzato. Riavvia il terminale o esegui: source " + rcPath)
 	return nil
+}
+
+func installShims(guardianDir, shimBinaryPath string) error {
+	// cerca il binario guardian-shim nella stessa dir del binario guardian o nel cwd
+	candidates := []string{
+		shimBinaryPath,
+		filepath.Join(filepath.Dir(os.Args[0]), shim.ShimBinaryName),
+		filepath.Join(".", shim.ShimBinaryName),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return shim.Install(guardianDir, candidate)
+		}
+	}
+	return fmt.Errorf("binario %s non trovato — esegui 'make shim'", shim.ShimBinaryName)
 }
 
 func ensureGuardianDir() (string, error) {
