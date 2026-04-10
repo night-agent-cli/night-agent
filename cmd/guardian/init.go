@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/pietroperona/agent-guardian/internal/launchagent"
 	"github.com/pietroperona/agent-guardian/internal/shell"
 	"github.com/pietroperona/agent-guardian/internal/shim"
 	"github.com/spf13/cobra"
@@ -59,8 +60,34 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("shims installati in: %s\n", shimDir)
 	}
 
+	// installa LaunchAgent — avvio automatico del daemon al login
+	home, _ := os.UserHomeDir()
+	binaryPath, err := resolveAbsBinary()
+	if err != nil {
+		fmt.Printf("avviso: LaunchAgent non installato (%v)\n", err)
+		fmt.Printf("        sposta il binario guardian in un path fisso (es. /usr/local/bin/guardian) e riesegui init\n")
+	} else if err := launchagent.Install(home, binaryPath, guardianDir); err != nil {
+		fmt.Printf("avviso: LaunchAgent non installato (%v)\n", err)
+	} else {
+		fmt.Printf("LaunchAgent installato: avvio automatico al login attivo\n")
+	}
+
 	fmt.Println("\nguardian inizializzato. Riavvia il terminale o esegui: source " + rcPath)
 	return nil
+}
+
+// resolveAbsBinary restituisce il path assoluto del binario guardian in esecuzione.
+// Fallisce se il binario è in una directory temporanea (es. go run).
+func resolveAbsBinary() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "", err
+	}
+	return abs, nil
 }
 
 func installShims(guardianDir, shimBinaryPath string) error {
