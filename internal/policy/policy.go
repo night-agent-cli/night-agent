@@ -124,6 +124,62 @@ func matches(rule Rule, action Action) bool {
 	return false
 }
 
+// AppendAllowRule aggiunge una regola allow permanente nella policy YAML per
+// il comando esatto dato. Se una regola identica esiste già, non duplica.
+func AppendAllowRule(policyPath, agentName, command string) error {
+	p, err := Load(policyPath)
+	if err != nil {
+		return err
+	}
+
+	// genera un ID univoco basato su agente e comando
+	id := "allow_" + sanitizeID(agentName) + "_" + sanitizeID(command)
+
+	// controlla se esiste già una regola identica
+	for _, r := range p.Rules {
+		if r.ID == id {
+			return nil // già presente, niente da fare
+		}
+	}
+
+	newRule := Rule{
+		ID: id,
+		When: Condition{
+			ActionType:     string(ActionTypeShell),
+			CommandMatches: []string{command},
+		},
+		MatchType: MatchGlob,
+		Decision:  DecisionAllow,
+		Reason:    fmt.Sprintf("consentito sempre per %s", agentName),
+	}
+
+	// inserisci come prima regola (priorità massima — first-match-wins)
+	p.Rules = append([]Rule{newRule}, p.Rules...)
+
+	data, err := yaml.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("errore serializzazione policy: %w", err)
+	}
+	return os.WriteFile(policyPath, data, 0600)
+}
+
+// sanitizeID trasforma una stringa in un identificatore YAML-safe.
+func sanitizeID(s string) string {
+	result := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			result = append(result, c)
+		} else {
+			result = append(result, '_')
+		}
+	}
+	if len(result) > 40 {
+		result = result[:40]
+	}
+	return string(result)
+}
+
 // matchPattern valuta un pattern contro un valore.
 // Per command_matches usa glob senza separatori (il * matcha spazi e /).
 // Per path_matches usa glob con filepath.Separator (il * non matcha /).

@@ -2,6 +2,7 @@ package shim
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,12 +70,34 @@ func CreateSymlinks(shimDir, shimBinaryPath string) error {
 	return nil
 }
 
-// Install crea la directory degli shim e installa le symlink.
-// Il binario guardian-shim deve essere già compilato e disponibile a shimBinaryPath.
+// Install crea la directory degli shim, copia il binario guardian-shim al suo interno
+// e installa le symlink. I symlink puntano al binario copiato nella stessa directory,
+// così la shim dir è autocontenuta e indipendente dalla directory di build.
 func Install(guardianDir, shimBinaryPath string) error {
 	shimDirPath := ShimDir(guardianDir)
 	if err := os.MkdirAll(shimDirPath, 0755); err != nil {
 		return fmt.Errorf("impossibile creare %s: %w", shimDirPath, err)
 	}
-	return CreateSymlinks(shimDirPath, shimBinaryPath)
+	destBinary := filepath.Join(shimDirPath, ShimBinaryName)
+	if err := copyFile(shimBinaryPath, destBinary, 0755); err != nil {
+		return fmt.Errorf("impossibile copiare %s: %w", ShimBinaryName, err)
+	}
+	return CreateSymlinks(shimDirPath, destBinary)
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
 }

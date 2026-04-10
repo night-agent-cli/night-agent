@@ -45,7 +45,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	defer logger.Close()
 
-	srv, err := daemon.NewServer(socketPath, p, logger)
+	srv, err := daemon.NewServerWithPolicyPath(socketPath, policyPath, p, logger)
 	if err != nil {
 		return fmt.Errorf("errore avvio daemon: %w", err)
 	}

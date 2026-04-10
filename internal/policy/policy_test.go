@@ -221,6 +221,79 @@ func TestEvaluate_PathMatch(t *testing.T) {
 	}
 }
 
+// --- AppendAllowRule ---
+
+func TestAppendAllowRule_AddsRule(t *testing.T) {
+	path := writeTempYAML(t, "version: 1\nrules: []\n")
+
+	if err := policy.AppendAllowRule(path, "claude", "sudo ls"); err != nil {
+		t.Fatalf("AppendAllowRule fallita: %v", err)
+	}
+
+	p, err := policy.Load(path)
+	if err != nil {
+		t.Fatalf("errore caricamento policy dopo append: %v", err)
+	}
+
+	result := p.Evaluate(policy.Action{Type: "shell", Command: "sudo ls"})
+	if result.Decision != policy.DecisionAllow {
+		t.Errorf("atteso allow dopo AppendAllowRule, ottenuto %s", result.Decision)
+	}
+}
+
+func TestAppendAllowRule_Idempotent(t *testing.T) {
+	path := writeTempYAML(t, "version: 1\nrules: []\n")
+
+	if err := policy.AppendAllowRule(path, "claude", "sudo ls"); err != nil {
+		t.Fatalf("prima AppendAllowRule fallita: %v", err)
+	}
+	if err := policy.AppendAllowRule(path, "claude", "sudo ls"); err != nil {
+		t.Fatalf("seconda AppendAllowRule fallita: %v", err)
+	}
+
+	p, err := policy.Load(path)
+	if err != nil {
+		t.Fatalf("errore caricamento policy: %v", err)
+	}
+	// conta regole allow per questo comando
+	count := 0
+	for _, r := range p.Rules {
+		if r.Decision == policy.DecisionAllow {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("attesa 1 regola allow, trovate %d", count)
+	}
+}
+
+func TestAppendAllowRule_PreservesExistingRules(t *testing.T) {
+	path := writeTempYAML(t, `version: 1
+rules:
+  - id: block_sudo
+    when:
+      action_type: shell
+      command_matches: ["sudo *"]
+    match_type: glob
+    decision: block
+    reason: "sudo disabilitato"
+`)
+
+	if err := policy.AppendAllowRule(path, "claude", "git status"); err != nil {
+		t.Fatalf("AppendAllowRule fallita: %v", err)
+	}
+
+	p, err := policy.Load(path)
+	if err != nil {
+		t.Fatalf("errore caricamento policy: %v", err)
+	}
+	// la regola block_sudo deve ancora esistere
+	result := p.Evaluate(policy.Action{Type: "shell", Command: "sudo rm -rf /"})
+	if result.Decision != policy.DecisionBlock {
+		t.Errorf("regola block_sudo rimossa dopo AppendAllowRule, atteso block ottenuto %s", result.Decision)
+	}
+}
+
 // --- helpers ---
 
 func writeTempYAML(t *testing.T, content string) string {
