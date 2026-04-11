@@ -153,6 +153,17 @@ func (s *Server) handle(conn net.Conn) {
 			WorkDir: req.WorkDir,
 		}
 
+		// Carica il profilo sandbox del progetto (.guardian.yaml nella workdir)
+		// e lo fonde con la config della regola (la regola ha priorità).
+		if req.WorkDir != "" {
+			profile, profileErr := sandbox.LoadProfile(req.WorkDir)
+			if profileErr != nil {
+				fmt.Printf("  avviso profilo sandbox: %v\n", profileErr)
+			} else {
+				cfg = sandbox.MergeConfig(cfg, profile)
+			}
+		}
+
 		// Riscrive i path host nel comando con i path container equivalenti.
 		// Il workspace è montato come /workspace nel container.
 		command := rewriteHostPaths(req.Command, req.WorkDir)

@@ -15,6 +15,12 @@ var sandboxCmd = &cobra.Command{
 	Short: "Esegui comandi in ambiente Docker isolato",
 }
 
+var sandboxResetCmd = &cobra.Command{
+	Use:   "reset",
+	Short: "Ferma tutti i container sandbox attivi gestiti da Guardian",
+	RunE:  runSandboxReset,
+}
+
 var sandboxRunCmd = &cobra.Command{
 	Use:   "run <comando>",
 	Short: "Esegui un comando in sandbox Docker",
@@ -43,7 +49,29 @@ func init() {
 		"modalità rete del container: none o bridge")
 
 	sandboxCmd.AddCommand(sandboxRunCmd)
+	sandboxCmd.AddCommand(sandboxResetCmd)
 	rootCmd.AddCommand(sandboxCmd)
+}
+
+func runSandboxReset(cmd *cobra.Command, args []string) error {
+	mgr := sandbox.New()
+
+	if !mgr.IsAvailable() {
+		return fmt.Errorf("Docker non disponibile")
+	}
+
+	fmt.Print("fermando container sandbox attivi... ")
+	stopped, err := mgr.Reset(context.Background())
+	if err != nil {
+		return fmt.Errorf("errore reset sandbox: %w", err)
+	}
+
+	if stopped == 0 {
+		fmt.Println("nessun container attivo.")
+	} else {
+		fmt.Printf("%d container fermati.\n", stopped)
+	}
+	return nil
 }
 
 func runSandbox(cmd *cobra.Command, args []string) error {
