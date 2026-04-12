@@ -33,6 +33,7 @@ func runHelp(cmd *cobra.Command, args []string) {
   ██║     ╚██████╔╝██║  ██║   ██║   ██║██║        ██║
   ╚═╝      ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝╚═╝        ╚═╝`+ansiReset)
 
+	fmt.Fprintln(w, ansiDim+"  ─────────────────────────────────────────────────────────"+ansiReset)
 	fmt.Fprintln(w, ansiBold+ansiBoldWhite+"  Runtime security layer per agenti AI"+ansiReset)
 	fmt.Fprintln(w, ansiDim+"  ─────────────────────────────────────────────────────────"+ansiReset)
 	fmt.Fprintln(w)

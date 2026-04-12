@@ -141,6 +141,7 @@ func Run(r io.Reader, w io.Writer) (blocked []string, err error) {
 
 	// header
 	fmt.Fprint(w, logo)
+	fmt.Fprintln(w, dim+"  ─────────────────────────────────────────────────────────"+reset)
 	fmt.Fprintln(w, bold+white+"  Runtime security layer per agenti AI"+reset)
 	fmt.Fprintln(w, dim+"  ─────────────────────────────────────────────────────────"+reset)
 	fmt.Fprintln(w)
