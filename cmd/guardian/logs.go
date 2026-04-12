@@ -64,17 +64,34 @@ func printTable(events []audit.Event) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIMESTAMP\tDECISIONE\tTIPO\tCOMANDO\tMOTIVO")
-	fmt.Fprintln(w, "---------\t---------\t----\t-------\t------")
+	fmt.Fprintln(w, "TIMESTAMP\tDECISIONE\tRISCHIO\tTIPO\tCOMANDO\tMOTIVO")
+	fmt.Fprintln(w, "---------\t---------\t-------\t----\t-------\t------")
 	for _, e := range events {
 		ts := e.Timestamp.Format(time.DateTime)
 		cmd := e.Command
-		if len(cmd) > 50 {
-			cmd = cmd[:47] + "..."
+		if len(cmd) > 45 {
+			cmd = cmd[:42] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ts, e.Decision, e.ActionType, cmd, e.Reason)
+		risk := riskLabel(e.RiskLevel, e.RiskScore, e.AnomalyDetected)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", ts, e.Decision, risk, e.ActionType, cmd, e.Reason)
+		// stampa suggerimenti inline se presenti
+		for _, h := range e.Suggestions {
+			fmt.Fprintf(w, "\t\t\t\t→ %s\t\n", h)
+		}
 	}
 	return w.Flush()
+}
+
+// riskLabel formatta il livello di rischio per la tabella.
+func riskLabel(level string, score float64, anomaly bool) string {
+	if level == "" {
+		return "-"
+	}
+	label := fmt.Sprintf("%s(%.2f)", level, score)
+	if anomaly {
+		label += "!"
+	}
+	return label
 }
 
 func printJSON(events []audit.Event) error {

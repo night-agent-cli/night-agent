@@ -13,6 +13,8 @@ import (
 	"github.com/pietroperona/night-agent/internal/interception"
 	"github.com/pietroperona/night-agent/internal/policy"
 	"github.com/pietroperona/night-agent/internal/sandbox"
+	"github.com/pietroperona/night-agent/internal/scorer"
+	"github.com/pietroperona/night-agent/internal/suggestions"
 )
 
 // Request è il messaggio inviato dalla shell hook al daemon.
@@ -34,12 +36,15 @@ type Response struct {
 
 // Server è il daemon che ascolta su Unix socket e valuta le richieste.
 type Server struct {
-	socketPath string
-	policy     *policy.Policy
-	policyPath string
-	logger     *audit.Logger
-	listener   net.Listener
-	quit       chan struct{}
+	socketPath  string
+	policy      *policy.Policy
+	policyPath  string
+	logger      *audit.Logger
+	listener    net.Listener
+	quit        chan struct{}
+	scorer      *scorer.Scorer
+	suggestions *suggestions.Engine
+	logPath     string // path del log JSONL per leggere la storia eventi
 }
 
 // NewServer crea il daemon e apre il Unix socket.
@@ -61,13 +66,20 @@ func newServer(socketPath, policyPath string, p *policy.Policy, logger *audit.Lo
 	}
 
 	return &Server{
-		socketPath: socketPath,
-		policy:     p,
-		policyPath: policyPath,
-		logger:     logger,
-		listener:   ln,
-		quit:       make(chan struct{}),
+		socketPath:  socketPath,
+		policy:      p,
+		policyPath:  policyPath,
+		logger:      logger,
+		listener:    ln,
+		quit:        make(chan struct{}),
+		scorer:      scorer.New(),
+		suggestions: suggestions.New(),
 	}, nil
+}
+
+// WithLogPath imposta il path del log JSONL per il context-aware scoring.
+func (s *Server) WithLogPath(logPath string) {
+	s.logPath = logPath
 }
 
 // Serve avvia il loop di accettazione delle connessioni.
@@ -116,14 +128,42 @@ func (s *Server) handle(conn net.Conn) {
 		decision = policy.DecisionBlock
 	}
 
+	// --- Cycle 3: risk scoring contestuale ---
+	scorerAction := scorer.Action{
+		Type:    string(action.Type),
+		Command: req.Command,
+		Path:    action.Path,
+		WorkDir: req.WorkDir,
+	}
+
+	// Leggi storia eventi recenti per scoring contestuale (ultimi 50)
+	recentEvents := s.recentEvents(50)
+	scoreResult := s.scorer.Score(scorerAction, recentEvents)
+	hints := s.suggestions.Suggest(scorerAction, scoreResult, recentEvents)
+
+	// Stampa segnali di anomalia se presenti
+	if scoreResult.AnomalyDetected {
+		fmt.Printf("  [!] anomalia rilevata: %v\n", scoreResult.Signals)
+	}
+	if len(hints) > 0 {
+		for _, h := range hints {
+			fmt.Printf("  [→] suggerimento: %s\n", h)
+		}
+	}
+
 	event := audit.Event{
-		ID:        uuid.New().String(),
-		AgentName: req.AgentName,
-		WorkDir:   req.WorkDir,
-		Command:   req.Command,
-		Decision:  string(decision),
-		RuleID:    result.RuleID,
-		Reason:    result.Reason,
+		ID:              uuid.New().String(),
+		AgentName:       req.AgentName,
+		WorkDir:         req.WorkDir,
+		Command:         req.Command,
+		Decision:        string(decision),
+		RuleID:          result.RuleID,
+		Reason:          result.Reason,
+		RiskScore:       scoreResult.Score,
+		RiskLevel:       string(scoreResult.Level),
+		RiskSignals:     scoreResult.Signals,
+		AnomalyDetected: scoreResult.AnomalyDetected,
+		Suggestions:     hints,
 	}
 
 	resp := Response{
@@ -198,6 +238,22 @@ func (s *Server) handle(conn net.Conn) {
 	_ = s.logger.Write(event)
 	logDecision(decision, req.Command, result.Reason)
 	_ = json.NewEncoder(conn).Encode(resp)
+}
+
+// recentEvents legge gli ultimi n eventi dal log JSONL.
+// Se il log non è disponibile restituisce slice vuota (fail-safe).
+func (s *Server) recentEvents(n int) []audit.Event {
+	if s.logPath == "" {
+		return nil
+	}
+	events, err := audit.ReadAll(s.logPath)
+	if err != nil || len(events) == 0 {
+		return nil
+	}
+	if len(events) <= n {
+		return events
+	}
+	return events[len(events)-n:]
 }
 
 func writeError(conn net.Conn, msg string) {

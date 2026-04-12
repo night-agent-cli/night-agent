@@ -27,6 +27,12 @@ type Event struct {
 	Sandboxed       bool   `json:"sandboxed,omitempty"`
 	SandboxImage    string `json:"sandbox_image,omitempty"`
 	SandboxExitCode *int   `json:"sandbox_exit_code,omitempty"`
+	// Campi risk scoring (Ciclo 3)
+	RiskScore       float64  `json:"risk_score,omitempty"`
+	RiskLevel       string   `json:"risk_level,omitempty"`
+	RiskSignals     []string `json:"risk_signals,omitempty"`
+	AnomalyDetected bool     `json:"anomaly_detected,omitempty"`
+	Suggestions     []string `json:"suggestions,omitempty"`
 }
 
 // Filter specifica criteri di filtro per ReadFiltered.

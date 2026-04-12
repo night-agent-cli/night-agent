@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Documento di specifica completo: [docs/ai-night-agent-mvp-plan.md](docs/ai-night-agent-mvp-plan.md)
 
-**Stato attuale: Cycle 1 ✅ + Cycle 2 ✅ — in sviluppo su `feature/sandbox-cycle2`**
+**Stato attuale: Cycle 1 ✅ + Cycle 2 ✅ + Cycle 3 ✅**
 
 ## Tech Stack
 
@@ -24,9 +24,11 @@ Documento di specifica completo: [docs/ai-night-agent-mvp-plan.md](docs/ai-night
 cmd/guardian/          CLI principale (Cobra) — init, run, start, logs, policy, doctor, sandbox, uninstall
 internal/
   policy/              Policy engine — load/evaluate YAML, glob/regex matching, SandboxConfig
-  audit/               Audit logger — JSONL append-only, filtri decision/action_type, campi sandbox
+  audit/               Audit logger — JSONL append-only, filtri decision/action_type, campi sandbox + risk
   daemon/              Unix socket server — valuta policy, gestisce sandbox Docker, routing decisioni
   sandbox/             Sandbox manager — docker run wrapper, resolveDockerBinary, BuildDockerArgs
+  scorer/              Risk scorer — heuristics pesate, anomaly burst detection (Cycle 3)
+  suggestions/         Policy suggestion engine — hints contestuali su path, override, anomalie (Cycle 3)
   shim/                PATH shim — CreateSymlinks, ShimmedCommands (include python/python3)
   intercept/           DYLD injection — per agenti senza Hardened Runtime
   interception/        Normalizer — classifica comandi in shell/git/file
@@ -111,12 +113,12 @@ Fail-safe: se Docker non è disponibile → blocca con messaggio esplicito.
 
 - **Cycle 1** ✅ — Policy engine, PATH shims, DYLD, shell hook, audit log, LaunchAgent
 - **Cycle 2** ✅ — Docker sandbox, `nightagent sandbox run`, routing automatico, path rewriting
-- **Cycle 3** — Risk scoring, anomaly detection, policy suggestions
+- **Cycle 3** ✅ — Risk scorer (heuristics), anomaly detection, policy suggestions, risk score in logs
 
 ## Repository & Git Workflow
 
 - **Remote**: [github.com/pietroperona/night-agent](https://github.com/pietroperona/night-agent)
-- **Branch principali**: `main` (produzione), `develop`, `feature/sandbox-cycle2` (corrente)
+- **Branch principali**: `main` (produzione), `develop`
 - **Commit**: non citare mai il nome di strumenti AI nei messaggi di commit
 
 ## Approccio di Sviluppo — TDD

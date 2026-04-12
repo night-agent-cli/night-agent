@@ -49,6 +49,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("errore avvio daemon: %w", err)
 	}
+	srv.WithLogPath(logPath)
 
 	fmt.Printf("night-agent in ascolto su %s\n", socketPath)
 

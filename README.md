@@ -140,6 +140,52 @@ tutto ok — guardian è operativo
 ./night-agent logs --decision sandbox
 ```
 
+Dal Cycle 3 il log include la colonna **RISCHIO** con il punteggio euristico dell'azione:
+
+```text
+TIMESTAMP            DECISIONE  RISCHIO          TIPO   COMANDO                        MOTIVO
+---------            ---------  -------          ----   -------                        ------
+2026-04-12 10:01:02  allow      low(0.00)        git    git status
+2026-04-12 10:01:15  block      high(0.80)       shell  sudo rm -rf /var/log           sudo disabilitato
+2026-04-12 10:01:33  sandbox    medium(0.35)!    shell  python3 deploy.py              script Python in sandbox
+                                                        → burst anomalo: 12 azioni in 30s
+```
+
+Il `!` segnala un'anomalia contestuale (burst di azioni, sequenza di blocchi). I suggerimenti di policy appaiono indentati sotto l'evento.
+
+---
+
+## Risk scoring e suggerimenti (Cycle 3)
+
+Night Agent valuta ogni azione con un **risk scorer euristico** indipendente dal policy engine. Il score è un segnale aggiuntivo — non sovrascrive mai le regole hard della policy.
+
+**Segnali considerati:**
+
+| Segnale | Peso |
+| ------- | ---- |
+| `sudo` nel comando | +0.50 |
+| `curl`/`wget` piped a `bash`/`sh` | +0.70 |
+| `rm` ricorsivo (`-r`, `-rf`) | +0.30 |
+| `chmod 777` | +0.30 |
+| `git push --force` | +0.50 |
+| `git push` su `main`/`master` | +0.20 |
+| Accesso a path sensibili (`.env`, `.ssh`, `.aws`…) | +0.30 |
+| Installazione pacchetti (`pip`, `npm`, `brew`…) | +0.15 |
+| Script shell (`bash *.sh`) | +0.20 |
+| Burst anomalo (>10 azioni in 30s) | +0.25 |
+| ≥3 blocchi nelle azioni recenti | +0.25 |
+
+Score clamped a `[0.0, 1.0]`. Livelli: `low` (<0.3) · `medium` (0.3–0.7) · `high` (≥0.7).
+
+**Suggerimenti automatici** appaiono nel log quando rilevanti:
+
+- Path sensibile → suggerisce read-only in policy
+- Stessa azione approvata manualmente ≥3 volte → suggerisce allow permanente
+- Burst anomalo → suggerisce esecuzione in sandbox
+- Rischio alto → suggerisce regola block esplicita
+
+I suggerimenti sono informativi: non modificano la decisione del daemon.
+
 ---
 
 ## Gestione policy
@@ -262,7 +308,7 @@ night-agent help                     Mostra questo help
 
 - **Cycle 1** ✅ — Policy engine rule-based, PATH shims, audit log, LaunchAgent
 - **Cycle 2** ✅ — Docker sandbox integration, isolamento rete, routing automatico via policy
-- **Cycle 3** — Risk scoring, anomaly detection, suggerimenti policy automatici
+- **Cycle 3** ✅ — Risk scoring euristico, anomaly detection, suggerimenti policy contestuali
 
 ---
 

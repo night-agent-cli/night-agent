@@ -161,6 +161,7 @@ Body:    Commands are evaluated before they run. Risky
 Titolo:  Audit log
 Body:    Every agent action is logged as structured JSONL.
          Filterable by decision, command type, or outcome.
+         Risk score and anomaly signals included.
 ```
 
 ---
@@ -193,7 +194,25 @@ Body:    PATH shims and DYLD injection. No agent
          modification required.
 ```
 
-**Nota design:** sei card in griglia 3×2. Titolo in monospace, corpo in sans-serif. Nessun colore di accento per singola card — uniformità totale.
+**Card 7**
+
+```
+Titolo:  Risk scoring
+Body:    Every action gets a contextual risk score based
+         on heuristics — sudo, pipes, sensitive paths,
+         action bursts. No ML. No black box.
+```
+
+**Card 8**
+
+```
+Titolo:  Policy suggestions
+Body:    Night Agent surfaces patterns it notices:
+         repeated overrides, anomalous sequences, risky
+         commands without a rule. You decide what to do.
+```
+
+**Nota design:** le card 7 e 8 estendono la griglia a 3×3 (o 4×2 a scelta). Stessa uniformità delle precedenti. Nessun accento cromatico diverso. Titolo in monospace, corpo in sans-serif. Nessun colore di accento per singola card — uniformità totale.
 
 ---
 
@@ -263,9 +282,9 @@ as structured JSONL. Queryable, storable, yours.
 **Blocco codice (come sopra, stesso stile):**
 
 ```jsonl
-{"timestamp":"2026-04-11T02:14:33Z","agent":"claude-code","action_type":"shell","command":"rm -rf ./dist","decision":"block","reason":"destructive operation not permitted"}
-{"timestamp":"2026-04-11T02:14:41Z","agent":"claude-code","action_type":"shell","command":"python3 deploy.py","decision":"sandbox","sandboxed":true,"sandbox_image":"python:3.12-alpine","sandbox_exit_code":0}
-{"timestamp":"2026-04-11T02:14:55Z","agent":"claude-code","action_type":"git","command":"git status","decision":"allow"}
+{"timestamp":"2026-04-11T02:14:33Z","agent":"claude-code","action_type":"shell","command":"rm -rf ./dist","decision":"block","reason":"destructive operation not permitted","risk_score":0.30,"risk_level":"medium","risk_signals":["rm ricorsivo"]}
+{"timestamp":"2026-04-11T02:14:41Z","agent":"claude-code","action_type":"shell","command":"python3 deploy.py","decision":"sandbox","sandboxed":true,"sandbox_image":"python:3.12-alpine","sandbox_exit_code":0,"risk_score":0.35,"risk_level":"medium","anomaly_detected":true,"suggestions":["burst anomalo rilevato — considera sandbox per questo pattern"]}
+{"timestamp":"2026-04-11T02:14:55Z","agent":"claude-code","action_type":"git","command":"git status","decision":"allow","risk_score":0.00,"risk_level":"low"}
 ```
 
 **Nota design:** il codice può scrollare orizzontalmente su mobile. Non troncarlo. I campi chiave (`decision`, `sandboxed`) possono avere highlight di colore tenue differenziato per valore: verde per allow, neutro per block, blu per sandbox.
