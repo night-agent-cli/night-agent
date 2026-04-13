@@ -423,7 +423,7 @@ Per questo entra nel ciclo 2, non nel ciclo 1.
 
 ---
 
-## 16. Roadmap MVP in 3 cicli Lean Startup
+## 16. Roadmap
 
 L'approccio è:
 build -> measure -> learn
@@ -435,7 +435,7 @@ Ogni ciclo deve produrre:
 
 ---
 
-# CICLO 1
+# CICLO 1 ✅ COMPLETATO
 Guardian locale rule-based per shell e git
 
 ## 16.1 Obiettivo
@@ -551,7 +551,7 @@ oppure
 
 ---
 
-# CICLO 2
+# CICLO 2 ✅ COMPLETATO
 Sandbox Docker + isolamento operativo
 
 ## 17.1 Obiettivo
@@ -637,7 +637,7 @@ Il ciclo 2 è riuscito se:
 
 ---
 
-# CICLO 3
+# CICLO 3 ✅ COMPLETATO
 Minimo layer intelligente + policy suggestions
 
 ## 18.1 Obiettivo
@@ -996,21 +996,188 @@ Deve risolvere molto bene un problema iniziale chiaro:
 
 rendere sicuro e osservabile l'uso di agenti locali che possono lanciare comandi, toccare file e usare git su Mac.
 
-Roadmap consigliata:
+Roadmap completata:
 
-- ciclo 1: controllo deterministico locale su shell e git
-- ciclo 2: sandbox Docker per confinare il rischio
-- ciclo 3: minimo layer intelligente per ridurre rumore e migliorare contesto
-
-Se i test confermano valore, il prodotto può poi evolvere verso:
-
-- policy management per team
-- runtime governance cross-tool
-- controllo di API e dati enterprise
-- piattaforma di sicurezza per agenti in ambienti professionali
+- ciclo 1 ✅ — controllo deterministico locale su shell e git
+- ciclo 2 ✅ — sandbox Docker per confinare il rischio
+- ciclo 3 ✅ — layer intelligente: risk scoring, anomaly detection, policy suggestions
+- ciclo 4 ✅ (parziale) — signed audit trail + MCP hook Claude Code
+- ciclo 5 → cloud dashboard, sync agent, AI analysis layer
 
 Il principio fondante resta uno:
 
 non fidarsi delle intenzioni dell'agente
 controllare le sue azioni
 e, quando serve, isolarne l'esecuzione
+
+---
+
+# CICLO 4 ✅ COMPLETATO
+Trust layer + protezione MCP
+
+## Obiettivo
+Rendere il log probatorio e estendere l'interception alle MCP tool calls di Claude Code.
+
+## Funzioni implementate
+
+### Signed audit trail
+- Ogni evento firmato con HMAC-SHA256 + catena hash (prev_hash)
+- Struttura blockchain-like: cancellare o modificare qualsiasi evento rompe la catena
+- `nightagent verify` controlla l'integrità retroattiva dell'intero log
+- Chiave locale 32 byte in `~/.night-agent/signing.key` (generata durante init)
+- Prerequisito tecnico per la cloud dashboard: eventi verificabili anche server-side
+
+### MCP hook (Claude Code)
+- `nightagent mcp-hook` intercetta le tool call MCP via PreToolUse hook
+- Tool intercettati: Bash, Edit, Write, Read, Glob, Grep, WebFetch, WebSearch
+- Stessa policy YAML dei comandi shell — nessuna configurazione doppia
+- Fail-open se daemon non disponibile
+- Configurazione in `~/.claude/settings.json`
+
+## Ipotesi validate
+- Il log firmato aumenta la fiducia nel prodotto come strumento di audit serio
+- Le MCP tool call sono intercettabili senza modificare Claude Code
+- Un hook leggero è sufficiente per coprire i casi d'uso principali
+
+---
+
+# CICLO 5 — Cloud dashboard + sync agent
+
+## Obiettivo
+Portare Night Agent da strumento locale a piattaforma osservabile via web. L'agente locale resta OSS. Il cloud è opt-in, premium.
+
+## Ipotesi da validare
+1. Gli utenti vogliono vedere i dati degli agenti da browser, non solo da terminale
+2. Il modello OSS core + cloud premium è accettato dagli utenti developer
+3. La connessione macchina → workspace tramite token è sufficientemente semplice
+4. Un AI layer sopra i dati di audit aggiunge valore percepito concreto
+
+## Output del ciclo
+Un sistema connesso composto da tre parti:
+
+### Parte 1 — Sync agent locale
+Nuovo processo leggero che legge `audit.jsonl` e invia gli eventi firmati alla cloud API.
+
+- `nightagent cloud connect <TOKEN>` — attiva la sincronizzazione
+- Batchizza eventi ogni N secondi (configurabile)
+- Non tocca il daemon esistente — zero impatto sull'uso offline
+- Verifica le firme prima dell'invio: non invia eventi corrotti
+- Riprende dall'ultimo evento sincronizzato in caso di interruzione
+
+### Parte 2 — Cloud API
+Backend multi-tenant che riceve, archivia e serve i dati delle macchine connesse.
+
+- Autenticazione per workspace token
+- Verifica server-side della catena hash: rileva se il client ha omesso eventi
+- API REST per la dashboard
+- Webhook configurabili per alert su eventi ad alto rischio
+
+### Parte 3 — Dashboard web
+Interfaccia web per osservare e governare gli agenti in real-time.
+
+Funzioni prioritarie:
+1. Feed eventi real-time con filtri (decisione, rischio, agente, macchina)
+2. Heatmap rischio per ora/giorno
+3. Top comandi bloccati e pattern anomali ricorrenti
+4. Policy editor web — modifica YAML e sincronizza sul client
+5. Alert email/Slack su eventi ad alto rischio
+6. Gestione multi-macchina — connessione tramite token alfanumerico
+
+## Architettura
+
+```
+~/.night-agent/audit.jsonl
+        ↓
+sync agent (Go, nuovo processo)
+        ↓  HTTPS + token
+Cloud API (Go)  →  Postgres
+        ↓
+Dashboard (Next.js)
+```
+
+## Connessione macchina
+
+```bash
+# sul web: "Aggiungi macchina" → genera TOKEN
+nightagent cloud connect ABC123XYZ
+# sync agent si avvia in background e inizia a inviare eventi
+```
+
+## Componenti nuovi da costruire
+
+```
+cmd/guardian/cloud.go         — comandi: cloud connect, cloud status, cloud disconnect
+internal/sync/agent.go        — sync agent: legge JSONL, batchizza, invia
+cloud/api/                    — backend Go: auth, ingest, query API
+cloud/dashboard/              — Next.js frontend
+```
+
+## Stack tecnologico
+- Sync agent: Go (stdlib `net/http`, nessuna dipendenza esterna)
+- Backend API: Go o Node.js
+- Database: Supabase (Postgres + realtime) o Postgres standalone
+- Frontend: Next.js + Tailwind
+- Auth: token workspace (alpha), OAuth per team (beta)
+
+## Esclusioni di questo ciclo
+- nessun AI layer (ciclo 6)
+- nessun policy editor completo (solo YAML upload/download)
+- nessun multi-utente per team (un account = una o più macchine personali)
+
+## Metriche del ciclo
+- numero di macchine connesse
+- eventi sincronizzati per sessione
+- tempo medio di latenza sync
+- tasso di adozione cloud vs solo locale
+- retention a 2 settimane
+
+## Criterio di successo
+Il ciclo 5 è riuscito se:
+- gli utenti connettono almeno una macchina e tornano sulla dashboard
+- la latenza di sync è percepita come accettabile (< 5 secondi)
+- almeno un utente usa la dashboard come strumento primario di osservazione
+
+---
+
+# CICLO 6 — AI analysis layer
+
+## Obiettivo
+Aggiungere un layer di intelligenza sopra i dati di audit cloud. Claude API come motore di analisi, non come decisore.
+
+## Ipotesi da validare
+1. Una AI che legge i log e risponde in linguaggio naturale è utile in pratica
+2. I pattern identificati dalla AI sono diversi e complementari rispetto all'heuristic scorer locale
+3. Gli utenti accettano di pagare per questo layer
+
+## Funzioni incluse
+
+### AI chat contestuale
+- "cosa ha fatto il mio agente nelle ultime 2 ore?"
+- "ci sono pattern anomali questa settimana?"
+- "quali comandi sono stati bloccati più spesso e perché?"
+- Risponde con citazioni dirette agli eventi nel log
+
+### Report automatici
+- Riepilogo giornaliero via email: eventi ad alto rischio, anomalie, suggerimenti policy
+- Report settimanale: trend, comandi nuovi non coperti da policy, pattern ricorrenti
+
+### Policy suggestions avanzate
+- Identifica comandi ripetuti senza regola esplicita e suggerisce di aggiungerla
+- Confronta la policy corrente con i pattern reali d'uso e segnala regole inutili o mancanti
+
+## Architettura
+```
+Cloud API → Claude API (analisi batch + query real-time)
+                ↓
+         risposta in linguaggio naturale
+                ↓
+         Dashboard (chat UI + report)
+```
+
+La decisione finale resta sempre nel policy engine locale deterministico.
+Claude API è advisory — non ha accesso al daemon e non può modificare policy senza conferma esplicita dell'utente.
+
+## Esclusioni
+- Claude API non ha mai accesso diretto al daemon o alla policy locale
+- Nessuna decisione di enforcement delegata alla AI
+- I dati inviati a Claude API sono gli stessi già sincronizzati in cloud (nessun dato aggiuntivo)
