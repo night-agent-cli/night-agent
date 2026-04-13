@@ -33,8 +33,9 @@ type Event struct {
 	RiskSignals     []string `json:"risk_signals,omitempty"`
 	AnomalyDetected bool     `json:"anomaly_detected,omitempty"`
 	Suggestions     []string `json:"suggestions,omitempty"`
-	// Firma HMAC-SHA256 (signed audit trail)
-	Sig string `json:"sig,omitempty"`
+	// Signed audit trail — catena hash (blockchain-like)
+	PrevHash string `json:"prev_hash,omitempty"` // hash SHA256 dell'evento precedente
+	Sig      string `json:"sig,omitempty"`        // HMAC-SHA256 di tutto l'evento (incluso prev_hash)
 }
 
 // Filter specifica criteri di filtro per ReadFiltered.
@@ -45,9 +46,10 @@ type Filter struct {
 
 // Logger scrive eventi in formato JSONL su file.
 type Logger struct {
-	file   *os.File
-	enc    *json.Encoder
-	signer *Signer // nil = nessuna firma
+	file     *os.File
+	enc      *json.Encoder
+	signer   *Signer // nil = nessuna firma
+	lastHash string  // hash dell'ultimo evento scritto (per catena)
 }
 
 // NewLogger apre (o crea) il file di log e restituisce un Logger senza firma.
@@ -71,17 +73,19 @@ func newLogger(path string, signer *Signer) (*Logger, error) {
 }
 
 // Write scrive un evento nel log. Se l'evento non ha timestamp, lo imposta ora.
-// Se il logger ha un signer, aggiunge la firma HMAC-SHA256.
+// Se il logger ha un signer, aggiunge prev_hash (catena) e firma HMAC-SHA256.
 func (l *Logger) Write(event Event) error {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
 	if l.signer != nil {
+		event.PrevHash = l.lastHash
 		signed, err := l.signer.Sign(event)
 		if err != nil {
 			return fmt.Errorf("firma evento: %w", err)
 		}
 		event = signed
+		l.lastHash = event.Sig // usa la firma come hash dell'evento per il prossimo
 	}
 	if err := l.enc.Encode(event); err != nil {
 		return fmt.Errorf("errore scrittura evento: %w", err)

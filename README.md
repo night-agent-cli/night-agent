@@ -334,16 +334,31 @@ Il workspace corrente viene montato automaticamente come `/workspace` nel contai
 
 ---
 
-## Signed audit trail
+## Audit log firmato
 
-Ogni evento viene firmato con HMAC-SHA256 usando una chiave locale generata durante `init`. Se qualcuno modifica il log (manualmente o un agente), la firma non regge.
+Ogni evento è firmato con HMAC-SHA256 e collegato al precedente tramite una catena hash. Il risultato è un log **tamper-evident**: modificare, cancellare o riordinare qualsiasi evento rompe la catena e viene rilevato da `verify`.
+
+### Struttura della catena
+
+```text
+evento 1  →  sig_1  ←─ HMAC(contenuto_1, chiave)
+evento 2  →  prev_hash = sig_1
+              sig_2  ←─ HMAC(contenuto_2 + prev_hash, chiave)
+evento 3  →  prev_hash = sig_2
+              sig_3  ←─ HMAC(contenuto_3 + prev_hash, chiave)
+```
+
+Ogni firma copre il contenuto dell'evento **e** l'hash del precedente. Cancellare un evento spezza la catena da quel punto in poi. Modificare il contenuto invalida la firma dell'evento modificato. Entrambi i casi vengono rilevati.
+
+La chiave (32 byte casuali) è in `~/.night-agent/signing.key` con permessi `0600`. Viene generata durante `nightagent init` e non lascia mai la macchina.
+
+### Verifica
 
 ```bash
-# verifica integrità di tutto l'audit log
 nightagent verify
 ```
 
-Output:
+Output su log integro:
 
 ```text
 audit log: 142 eventi totali
@@ -352,22 +367,57 @@ audit log: 142 eventi totali
 integrità verificata.
 ```
 
-Se rileva manomissioni:
+Output su log manomesso:
 
 ```text
   [✗] evento abc-123 (#41): firma non valida — evento potenzialmente manomesso
+  [✗] evento def-456 (#42): catena hash spezzata — evento precedente mancante o modificato
 audit log: 142 eventi totali
-  ✓ validi:    141
-  ✗ manomessi: 1
+  ✓ validi:    140
+  ✗ manomessi: 2
 ```
 
-La chiave è in `~/.night-agent/signing.key` (0600). Gli eventi firmati hanno un campo `sig` nel JSONL.
+Gli eventi scritti prima dell'attivazione della firma (senza campo `sig`) vengono segnalati separatamente come `non firmati` — non come errore.
+
+### Formato JSONL firmato
+
+```json
+{
+  "id": "abc-123",
+  "timestamp": "2026-04-13T09:14:22Z",
+  "command": "sudo rm -rf /var/log",
+  "decision": "block",
+  "risk_level": "high",
+  "prev_hash": "a3f1c8...",
+  "sig": "7d4e2b..."
+}
+```
 
 ---
 
 ## Protezione MCP tool calls (Claude Code)
 
-I PATH shims intercettano i comandi shell. Le MCP tool calls (Bash, Edit, Write…) passano invece direttamente dentro Claude Code — ma Night Agent le intercetta tramite il sistema di hooks di Claude Code.
+I PATH shims di Night Agent intercettano i comandi shell (`git`, `curl`, `rm`…). Le **MCP tool calls** — `Bash`, `Edit`, `Write`, `WebFetch` e simili — viaggiano invece dentro il processo di Claude Code e non passano per la shell.
+
+Night Agent le intercetta tramite il sistema di **hooks nativi di Claude Code** (`PreToolUse`), senza modificare Claude Code né richiedere permessi speciali.
+
+### Flusso di intercettazione
+
+```text
+Claude Code decide di chiamare Bash(command="sudo rm -rf /tmp")
+        ↓
+  PreToolUse hook → nightagent mcp-hook --tool Bash --input-file /tmp/input.json
+        ↓
+  nightagent invia la tool call al daemon (stesso Unix socket del daemon principale)
+        ↓
+  daemon valuta policy YAML → block
+        ↓
+  nightagent esce con code 2
+        ↓
+  Claude Code interrompe l'esecuzione — tool call bloccata
+```
+
+La stessa policy YAML che governa i comandi shell governa le tool call MCP. Nessuna configurazione doppia.
 
 ### Configurazione
 
@@ -387,16 +437,53 @@ Aggiungi in `~/.claude/settings.json`:
 }
 ```
 
-Da questo momento, prima di ogni tool call Claude Code consulta Night Agent. La policy YAML si applica anche alle tool call MCP:
+Riavvia Claude Code. Da questo momento ogni tool call passa per Night Agent prima dell'esecuzione.
 
-```text
-[✗] Bash bloccato — sudo disabilitato per gli agenti AI
-[⬡] Write eseguito in sandbox — scrittura su path sensibile
+### Tool intercettati
+
+| Tool | Cosa viene valutato |
+| ---- | ------------------- |
+| `Bash` | comando shell completo + workdir |
+| `Edit` | path del file modificato |
+| `Write` | path del file scritto |
+| `Read` | path del file letto |
+| `Glob` | pattern di ricerca |
+| `Grep` | pattern + path |
+| `WebFetch` | URL della richiesta |
+| `WebSearch` | query di ricerca |
+| tool custom | nome del tool come identificatore |
+
+### Regole per MCP nella policy
+
+Puoi aggiungere regole specifiche per le tool call MCP usando i path come discriminante:
+
+```yaml
+- id: block_write_ssh
+  when:
+    action_type: file
+    path_matches: ["**/.ssh/*", "**/id_rsa*"]
+  match_type: glob
+  decision: block
+  reason: "scrittura su path SSH non consentita agli agenti"
+
+- id: block_bash_sudo
+  when:
+    action_type: shell
+    command_matches: ["sudo *"]
+  match_type: glob
+  decision: block
+  reason: "sudo non consentito"
 ```
 
-**Tool intercettati:** `Bash`, `Edit`, `Write`, `Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch` + qualsiasi tool MCP custom.
+Le regole esistenti funzionano già — non serve riscriverle.
 
-**Fail-open:** se il daemon non è in ascolto, il hook consente l'esecuzione senza bloccare il workflow.
+### Comportamento in caso di errore
+
+Se il daemon non è in ascolto, `mcp-hook` consente l'esecuzione senza bloccare (**fail-open**). Questo garantisce che un daemon non avviato non blocchi l'intero workflow. Avvia il daemon prima di usare Claude Code per avere protezione attiva:
+
+```bash
+nightagent start
+```
 
 ---
 

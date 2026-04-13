@@ -100,8 +100,10 @@ type VerifyResult struct {
 	Err     error
 }
 
-// VerifyAll legge tutti gli eventi da logPath e ne verifica le firme.
-// Restituisce un risultato per ogni evento (Err nil = firma valida).
+// VerifyAll legge tutti gli eventi da logPath e ne verifica:
+// 1. la firma HMAC-SHA256 (integrità del contenuto)
+// 2. la catena prev_hash (nessun evento eliminato o riordinato)
+// Restituisce un risultato per ogni evento (Err nil = tutto valido).
 func VerifyAll(logPath string, signer *Signer) ([]VerifyResult, error) {
 	events, err := ReadAll(logPath)
 	if err != nil {
@@ -109,12 +111,26 @@ func VerifyAll(logPath string, signer *Signer) ([]VerifyResult, error) {
 	}
 
 	results := make([]VerifyResult, len(events))
+	var prevSig string
+
 	for i, e := range events {
-		results[i] = VerifyResult{
-			EventID: e.ID,
-			Index:   i,
-			Err:     signer.Verify(e),
+		r := VerifyResult{EventID: e.ID, Index: i}
+
+		// 1. verifica firma
+		if sigErr := signer.Verify(e); sigErr != nil {
+			r.Err = sigErr
+			results[i] = r
+			prevSig = e.Sig
+			continue
 		}
+
+		// 2. verifica catena: prev_hash deve corrispondere alla firma dell'evento precedente
+		if i > 0 && e.PrevHash != "" && e.PrevHash != prevSig {
+			r.Err = fmt.Errorf("catena hash spezzata — evento precedente mancante o modificato")
+		}
+
+		prevSig = e.Sig
+		results[i] = r
 	}
 	return results, nil
 }

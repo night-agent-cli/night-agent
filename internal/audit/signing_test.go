@@ -142,6 +142,65 @@ func TestLoggerWithSigning_WritesAndVerifies(t *testing.T) {
 	}
 }
 
+func TestChain_DetectsDeletedEvent(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "signing.key")
+	logPath := filepath.Join(dir, "audit.jsonl")
+
+	audit.GenerateKey(keyPath)
+	signer, _ := audit.NewSigner(keyPath)
+
+	logger, _ := audit.NewSignedLogger(logPath, signer)
+	logger.Write(audit.Event{ID: "1", Command: "ls", Decision: "allow"})
+	logger.Write(audit.Event{ID: "2", Command: "git status", Decision: "allow"})
+	logger.Write(audit.Event{ID: "3", Command: "sudo su", Decision: "block"})
+	logger.Close()
+
+	// leggi le righe, rimuovi la riga 2 (evento nel mezzo)
+	data, _ := os.ReadFile(logPath)
+	lines := splitLines(data)
+	if len(lines) < 3 {
+		t.Skip("meno di 3 eventi nel log")
+	}
+	// rimuovi riga 2 (indice 1)
+	trimmed := append(lines[:1], lines[2:]...)
+	os.WriteFile(logPath, joinLines(trimmed), 0600)
+
+	results, _ := audit.VerifyAll(logPath, signer)
+	chainBroken := false
+	for _, r := range results {
+		if r.Err != nil {
+			chainBroken = true
+		}
+	}
+	if !chainBroken {
+		t.Error("VerifyAll dovrebbe rilevare evento eliminato (catena hash spezzata)")
+	}
+}
+
+func splitLines(data []byte) [][]byte {
+	var lines [][]byte
+	start := 0
+	for i, b := range data {
+		if b == '\n' {
+			if i > start {
+				lines = append(lines, data[start:i])
+			}
+			start = i + 1
+		}
+	}
+	return lines
+}
+
+func joinLines(lines [][]byte) []byte {
+	var out []byte
+	for _, l := range lines {
+		out = append(out, l...)
+		out = append(out, '\n')
+	}
+	return out
+}
+
 func TestVerifyAll_DetectsTamperedLine(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "signing.key")
