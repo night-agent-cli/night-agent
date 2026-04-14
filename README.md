@@ -487,6 +487,64 @@ nightagent start
 
 ---
 
+## Configurazione per progetto
+
+Night Agent supporta una config **locale al progetto** separata da quella globale utente.
+
+### Risoluzione config dir
+
+| Situazione | Config dir usata |
+| --- | --- |
+| `.nightagent/` esiste nella cwd | `.nightagent/` (locale al progetto) |
+| nessuna config locale | `~/.night-agent/` (globale utente) |
+| flag `--global` | `~/.night-agent/` (forzato) |
+
+### Connessione cloud per progetto
+
+```bash
+cd ~/my-project
+nightagent cloud connect <TOKEN>
+```
+
+Questo comando:
+
+- Crea `.nightagent/` nella directory corrente
+- Genera una signing key dedicata in `.nightagent/signing.key`
+- Aggiunge `.nightagent/` al `.gitignore` del progetto (il token non finisce in git)
+- Registra la signing key sul backend cloud
+
+Per usare la config globale (`~/.night-agent/`) indipendentemente dalla cwd:
+
+```bash
+nightagent --global cloud connect <TOKEN>
+```
+
+### Priorità caricamento policy
+
+All'avvio del daemon (`nightagent start`):
+
+1. **Cloud** — se connesso, scarica la policy via `GET /api/policy?machine_id=X` e la scrive su disco
+2. **Locale** — usa `<config_dir>/policy.yaml`
+3. **Globale** — fallback su `~/.night-agent/policy.yaml`
+4. **Errore** — se nessuna policy trovata: `esegui nightagent init`
+
+### Stato config
+
+```bash
+nightagent cloud status
+```
+
+Mostra quale config dir è attiva:
+
+```text
+  cloud: connesso
+  config dir : /Users/me/my-project/.nightagent
+  endpoint   : https://api.nightagent.dev
+  machine    : 6e455543-...
+```
+
+---
+
 ## Comandi disponibili
 
 ```text
