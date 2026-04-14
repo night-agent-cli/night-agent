@@ -1,11 +1,14 @@
+# Binaries (solo root, non directory col nome)
+/nightagent
+/night-agent
+/guardian
+/guardian-shim
+/guardian-intercept.dylib
+
 # macOS
 .DS_Store
-
-# Build output
-/guardian
-/night-agent
-/dist/
 
 # Go
 *.test
 *.out
+/vendor/

@@ -153,6 +153,9 @@ func BuildDockerArgs(command string, cfg Config) []string {
 		args = append(args, "-w", "/workspace")
 	}
 
+	// /tmp host montato in sola lettura — permette accesso a file temporanei
+	args = append(args, "-v", "/tmp:/tmp:ro")
+
 	// mount aggiuntivi dal profilo di progetto
 	for _, m := range cfg.ExtraMounts {
 		mode := "rw"

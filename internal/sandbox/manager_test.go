@@ -3,6 +3,7 @@ package sandbox_test
 import (
 	"context"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,13 +147,14 @@ func TestBuildDockerArgs_WithWorkDir(t *testing.T) {
 	}
 }
 
-func TestBuildDockerArgs_WithoutWorkDir_NoMount(t *testing.T) {
+func TestBuildDockerArgs_WithoutWorkDir_NoWorkspaceMount(t *testing.T) {
 	cfg := sandbox.Config{Image: "alpine:3.20", Network: "none"}
 	args := sandbox.BuildDockerArgs("ls", cfg)
 
-	for _, a := range args {
-		if a == "-v" {
-			t.Errorf("senza WorkDir non deve esserci mount -v: %v", args)
+	// senza WorkDir non deve esserci il mount /workspace
+	for i, a := range args {
+		if a == "-v" && i+1 < len(args) && strings.Contains(args[i+1], "/workspace") {
+			t.Errorf("senza WorkDir non deve esserci mount /workspace: %v", args)
 		}
 	}
 }

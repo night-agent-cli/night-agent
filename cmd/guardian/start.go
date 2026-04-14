@@ -6,10 +6,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/pietroperona/night-agent/internal/audit"
 	"github.com/pietroperona/night-agent/internal/daemon"
 	"github.com/pietroperona/night-agent/internal/policy"
+	nightsync "github.com/pietroperona/night-agent/internal/sync"
 	"github.com/spf13/cobra"
 )
 
@@ -61,6 +63,19 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Printf("night-agent in ascolto su %s\n", socketPath)
 
 	go srv.Serve()
+
+	// sync cloud periodico ogni 30s — fail-open, errori ignorati
+	cloudCfgPath := filepath.Join(guardianDir, "cloud.yaml")
+	if _, err := os.Stat(cloudCfgPath); err == nil {
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			agent := nightsync.NewAgent(cloudCfgPath, logPath)
+			for range ticker.C {
+				_ = agent.SyncOnce()
+			}
+		}()
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
