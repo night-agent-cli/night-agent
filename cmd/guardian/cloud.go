@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pietroperona/night-agent/internal/cloudconfig"
@@ -78,12 +82,57 @@ func runCloudConnect(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("connessione fallita: %w", err)
 	}
 
+	if err := registerSigningKey(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "  avviso: registrazione chiave di firma fallita: %v\n", err)
+	}
+
 	fmt.Println("  ✓ connesso al cloud Night Agent")
 	fmt.Printf("  endpoint : %s\n", cfg.Endpoint)
 	fmt.Printf("  machine  : %s\n", cfg.MachineID)
 	fmt.Println()
 	fmt.Println("  sync automatico: avvia il daemon con 'nightagent start'")
 	fmt.Println("  sync manuale   : 'nightagent cloud sync'")
+	return nil
+}
+
+// registerSigningKey invia la chiave di firma locale al backend cloud.
+// La chiave è già in formato hex — viene letta e inviata as-is.
+func registerSigningKey(cfg *cloudconfig.Config) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	keyPath := filepath.Join(home, ".night-agent", "signing.key")
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return fmt.Errorf("lettura signing.key: %w", err)
+	}
+
+	body, err := json.Marshal(map[string]string{
+		"machine_id": cfg.MachineID,
+		"signing_key": strings.TrimSpace(string(keyBytes)),
+	})
+	if err != nil {
+		return err
+	}
+
+	url := cfg.Endpoint + "/api/machines/signing-key"
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server ha risposto %d", resp.StatusCode)
+	}
 	return nil
 }
 

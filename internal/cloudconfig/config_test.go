@@ -32,7 +32,7 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 
 	cfg := &cloudconfig.Config{
 		Token:     "tok-abc",
-		Endpoint:  "https://api.example.com",
+		Endpoint:  "https://api.example.com", // ignorato: Load usa sempre defaultEndpoint
 		MachineID: "machine-123",
 		Connected: true,
 	}
@@ -47,8 +47,9 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	if loaded.Token != cfg.Token {
 		t.Errorf("token: want %q, got %q", cfg.Token, loaded.Token)
 	}
-	if loaded.Endpoint != cfg.Endpoint {
-		t.Errorf("endpoint: want %q, got %q", cfg.Endpoint, loaded.Endpoint)
+	// Endpoint sempre dal valore compilato, non dal file.
+	if loaded.Endpoint == "" {
+		t.Error("endpoint atteso non vuoto")
 	}
 	if loaded.MachineID != cfg.MachineID {
 		t.Errorf("machine_id: want %q, got %q", cfg.MachineID, loaded.MachineID)

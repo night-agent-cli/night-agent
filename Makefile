@@ -6,12 +6,31 @@ HELPER     = internal/intercept/testdata/exec-helper/exec-helper
 SHIM       = guardian-shim
 SHIM_SRC   = internal/shim/csrc/guardian_shim.c
 
-.PHONY: all build dylib shim helper test integration-test clean
+ENDPOINT_PKG = github.com/pietroperona/night-agent/internal/cloudconfig.defaultEndpoint
+ENDPOINT_PROD    = https://api.nightagent.dev
+ENDPOINT_STAGING = https://staging.api.nightagent.dev
+ENDPOINT_DEV     = http://localhost:8000
+
+.PHONY: all build build-dev build-staging dylib shim helper test integration-test clean
 
 all: dylib shim helper build
 
+# Produzione — endpoint prod hardcodato
 build:
-	go build -o $(BINARY) ./cmd/guardian
+	go build -ldflags "-X '$(ENDPOINT_PKG)=$(ENDPOINT_PROD)'" -o $(BINARY) ./cmd/guardian
+
+# Staging — endpoint staging hardcodato
+build-staging:
+	go build -ldflags "-X '$(ENDPOINT_PKG)=$(ENDPOINT_STAGING)'" -o $(BINARY) ./cmd/guardian
+
+# Dev locale — punta a localhost:8000
+build-dev:
+	go build -ldflags "-X '$(ENDPOINT_PKG)=$(ENDPOINT_DEV)'" -o $(BINARY) ./cmd/guardian
+
+# Installa il binario dev in /usr/local/bin (sovrascrive quello prod)
+install-dev: build-dev
+	cp $(BINARY) $(HOME)/.local/bin/$(BINARY)
+	@echo "installato: $(HOME)/.local/bin/$(BINARY) → $(ENDPOINT_DEV)"
 
 dylib:
 	clang -dynamiclib \

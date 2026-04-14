@@ -10,7 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const defaultEndpoint = "https://api.nightagent.dev"
+// defaultEndpoint è iniettato a compile time via ldflags:
+//
+//	go build -ldflags "-X github.com/pietroperona/night-agent/internal/cloudconfig.defaultEndpoint=https://..."
+//
+// Non esporre mai questo valore come flag CLI — l'utente non deve poterlo cambiare.
+var defaultEndpoint = "https://api.nightagent.dev"
 
 // Config contiene la configurazione per la connessione cloud.
 // Salvata in ~/.night-agent/cloud.yaml.
@@ -38,9 +43,8 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing cloud.yaml: %w", err)
 	}
-	if cfg.Endpoint == "" {
-		cfg.Endpoint = defaultEndpoint
-	}
+	// Endpoint sempre dal valore compilato — non modificabile dall'utente.
+	cfg.Endpoint = defaultEndpoint
 	return &cfg, nil
 }
 
