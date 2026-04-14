@@ -163,11 +163,17 @@ static int guardian_check(const char *socket_path, const char *command, int *out
         workdir[0] = '\0';
     }
 
+    /* agent_name: usa NIGHTAGENT_AGENT se settata, altrimenti "shim" */
+    const char *agent_name = getenv("NIGHTAGENT_AGENT");
+    if (agent_name == NULL || agent_name[0] == '\0') {
+        agent_name = "shim";
+    }
+
     /* invia richiesta JSON */
     char req[MAX_CMD + 4096 + 64];
     snprintf(req, sizeof(req),
-        "{\"command\":\"%s\",\"work_dir\":\"%s\",\"agent_name\":\"shim\"}\n",
-        escaped, workdir);
+        "{\"command\":\"%s\",\"work_dir\":\"%s\",\"agent_name\":\"%s\"}\n",
+        escaped, workdir, agent_name);
 
     if (write(fd, req, strlen(req)) < 0) {
         close(fd);

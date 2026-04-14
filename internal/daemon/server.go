@@ -156,6 +156,7 @@ func (s *Server) handle(conn net.Conn) {
 		AgentName:       req.AgentName,
 		WorkDir:         req.WorkDir,
 		Command:         req.Command,
+		ActionType:      string(action.Type),
 		Decision:        string(decision),
 		RuleID:          result.RuleID,
 		Reason:          result.Reason,

@@ -51,6 +51,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	shimBinary := filepath.Join(shimDir, shim.ShimBinaryName)
 
 	env := os.Environ()
+	env = append(env, "NIGHTAGENT_AGENT="+args[0])
 
 	// PATH shims: funzionano con tutti gli agenti indipendentemente da Hardened Runtime
 	if _, err := os.Stat(shimBinary); err == nil {
