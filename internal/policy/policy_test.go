@@ -21,7 +21,7 @@ rules:
     reason: "sudo disabilitato"
 `
 	f := writeTempYAML(t, yaml)
-	p, err := policy.Load(f)
+	p, err := policy.LoadFile(f)
 	if err != nil {
 		t.Fatalf("atteso nessun errore, ottenuto: %v", err)
 	}
@@ -37,7 +37,7 @@ rules:
 }
 
 func TestLoadPolicy_FileNotFound(t *testing.T) {
-	_, err := policy.Load("/nonexistent/path/policy.yaml")
+	_, err := policy.LoadFile("/nonexistent/path/policy.yaml")
 	if err == nil {
 		t.Fatal("atteso errore per file mancante, ottenuto nil")
 	}
@@ -45,7 +45,7 @@ func TestLoadPolicy_FileNotFound(t *testing.T) {
 
 func TestLoadPolicy_InvalidYAML(t *testing.T) {
 	f := writeTempYAML(t, "{ invalid yaml ::::")
-	_, err := policy.Load(f)
+	_, err := policy.LoadFile(f)
 	if err == nil {
 		t.Fatal("atteso errore per YAML invalido, ottenuto nil")
 	}
@@ -62,7 +62,7 @@ rules:
     reason: "test"
 `
 	f := writeTempYAML(t, yaml)
-	_, err := policy.Load(f)
+	_, err := policy.LoadFile(f)
 	if err == nil {
 		t.Fatal("atteso errore per version mancante, ottenuto nil")
 	}
@@ -230,7 +230,7 @@ func TestAppendAllowRule_AddsRule(t *testing.T) {
 		t.Fatalf("AppendAllowRule fallita: %v", err)
 	}
 
-	p, err := policy.Load(path)
+	p, err := policy.LoadFile(path)
 	if err != nil {
 		t.Fatalf("errore caricamento policy dopo append: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestAppendAllowRule_Idempotent(t *testing.T) {
 		t.Fatalf("seconda AppendAllowRule fallita: %v", err)
 	}
 
-	p, err := policy.Load(path)
+	p, err := policy.LoadFile(path)
 	if err != nil {
 		t.Fatalf("errore caricamento policy: %v", err)
 	}
@@ -283,7 +283,7 @@ rules:
 		t.Fatalf("AppendAllowRule fallita: %v", err)
 	}
 
-	p, err := policy.Load(path)
+	p, err := policy.LoadFile(path)
 	if err != nil {
 		t.Fatalf("errore caricamento policy: %v", err)
 	}

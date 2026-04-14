@@ -12,3 +12,6 @@
 *.test
 *.out
 /vendor/
+
+# Night Agent config locale
+.nightagent/

@@ -127,7 +127,7 @@ func runPolicyWizard(policyPath string) error {
 		return err
 	}
 
-	p, err := policy.Load(policyPath)
+	p, err := policy.LoadFile(policyPath)
 	if err != nil {
 		return err
 	}

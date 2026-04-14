@@ -18,7 +18,7 @@ type NewRuleSpec struct {
 
 // ToggleRule inverte la decisione di una regola (block↔allow).
 func ToggleRule(policyPath, ruleID string) error {
-	p, err := policy.Load(policyPath)
+	p, err := policy.LoadFile(policyPath)
 	if err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func ToggleRule(policyPath, ruleID string) error {
 // AddRule aggiunge una nuova regola alla policy.
 // Restituisce errore se esiste già una regola con lo stesso ID.
 func AddRule(policyPath string, spec NewRuleSpec) error {
-	p, err := policy.Load(policyPath)
+	p, err := policy.LoadFile(policyPath)
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func AddRule(policyPath string, spec NewRuleSpec) error {
 
 // RemoveRule rimuove una regola dalla policy per ID.
 func RemoveRule(policyPath, ruleID string) error {
-	p, err := policy.Load(policyPath)
+	p, err := policy.LoadFile(policyPath)
 	if err != nil {
 		return err
 	}

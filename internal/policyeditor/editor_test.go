@@ -51,7 +51,7 @@ func TestToggleRule_BlockToAllow(t *testing.T) {
 		t.Fatalf("ToggleRule fallita: %v", err)
 	}
 
-	p, _ := policy.Load(path)
+	p, _ := policy.LoadFile(path)
 	for _, r := range p.Rules {
 		if r.ID == "block_sudo" {
 			if r.Decision != policy.DecisionAllow {
@@ -70,7 +70,7 @@ func TestToggleRule_AllowToBlock(t *testing.T) {
 		t.Fatalf("ToggleRule fallita: %v", err)
 	}
 
-	p, _ := policy.Load(path)
+	p, _ := policy.LoadFile(path)
 	for _, r := range p.Rules {
 		if r.ID == "block_rm_rf" {
 			if r.Decision != policy.DecisionBlock {
@@ -104,7 +104,7 @@ func TestAddRule_NewRule(t *testing.T) {
 		t.Fatalf("AddRule fallita: %v", err)
 	}
 
-	p, _ := policy.Load(path)
+	p, _ := policy.LoadFile(path)
 	for _, r := range p.Rules {
 		if r.ID == "block_chmod" {
 			if r.Decision != policy.DecisionBlock {
@@ -139,7 +139,7 @@ func TestRemoveRule(t *testing.T) {
 		t.Fatalf("RemoveRule fallita: %v", err)
 	}
 
-	p, _ := policy.Load(path)
+	p, _ := policy.LoadFile(path)
 	for _, r := range p.Rules {
 		if r.ID == "block_sudo" {
 			t.Error("regola block_sudo ancora presente dopo RemoveRule")
@@ -157,7 +157,7 @@ func TestRemoveRule_NotFound(t *testing.T) {
 
 func TestRenderTable_NotEmpty(t *testing.T) {
 	path := writePolicy(t, sampleYAML)
-	p, _ := policy.Load(path)
+	p, _ := policy.LoadFile(path)
 
 	out := policyeditor.RenderTable(p)
 	if out == "" {

@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +17,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var localPolicyOnly bool
+
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Avvia il daemon Guardian in foreground",
@@ -26,33 +26,51 @@ var startCmd = &cobra.Command{
 }
 
 func init() {
+	startCmd.Flags().BoolVar(&localPolicyOnly, "local-policy-only", false, "ignora la policy cloud, usa solo locale/globale")
 	rootCmd.AddCommand(startCmd)
 }
 
-func runStart(cmd *cobra.Command, args []string) error {
+func runStart(_ *cobra.Command, _ []string) error {
 	cfgDir, err := resolveConfigDir()
 	if err != nil {
 		return err
 	}
 
-	policyPath := filepath.Join(cfgDir, "policy.yaml")
 	socketPath := filepath.Join(cfgDir, "night-agent.sock")
 	logPath := filepath.Join(cfgDir, "audit.jsonl")
 	cloudCfgPath := filepath.Join(cfgDir, "cloud.yaml")
 
-	// --- Priorità caricamento policy ---
-	// 1. cloud configurato → prova GET /api/policy?machine_id=X
-	// 2. altrimenti → config dir locale/globale
-	// 3. fallback → ~/.night-agent/policy.yaml
-	// 4. niente → errore
-	resolvedPolicyPath, err := resolvePolicyPath(cloudCfgPath, policyPath)
+	cwd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
-	p, err := policy.Load(resolvedPolicyPath)
+	// costruisci cloud client se configurato e non --local-policy-only
+	var cloudClient policy.CloudClient
+	var machineID string
+	if !localPolicyOnly {
+		if cfg, err := cloudconfig.Load(cloudCfgPath); err == nil && cfg.Connected && cfg.Token != "" {
+			cloudClient = &policy.HTTPCloudClient{
+				Endpoint: cfg.Endpoint,
+				Token:    cfg.Token,
+			}
+			machineID = cfg.MachineID
+		}
+	}
+
+	// carica policy con priorità cloud → locale → globale → none
+	lp, err := policy.Load(cwd, cloudClient, machineID)
 	if err != nil {
 		return fmt.Errorf("errore caricamento policy: %w", err)
+	}
+	fmt.Println(policy.FormatSource(lp))
+
+	// policy permissiva se SourceNone (nessuna policy trovata)
+	var p *policy.Policy
+	if lp.Policy != nil {
+		p = lp.Policy
+	} else {
+		p = &policy.Policy{}
 	}
 
 	// usa signed logger se la chiave esiste, altrimenti logger base
@@ -68,16 +86,35 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	defer logger.Close()
 
-	srv, err := daemon.NewServerWithPolicyPath(socketPath, resolvedPolicyPath, p, logger)
+	policyPath := lp.Path
+	if lp.Source == policy.SourceNone {
+		policyPath = filepath.Join(cfgDir, "policy.yaml")
+	}
+
+	srv, err := daemon.NewServerWithPolicyPath(socketPath, policyPath, p, logger)
 	if err != nil {
 		return fmt.Errorf("errore avvio daemon: %w", err)
 	}
 	srv.WithLogPath(logPath)
 
 	fmt.Printf("night-agent in ascolto su %s\n", socketPath)
-	fmt.Printf("night-agent policy       : %s\n", resolvedPolicyPath)
 
 	go srv.Serve()
+
+	// hot-reload: watch cwd per nightagent-policy.yaml
+	stopWatch, watchErr := policy.Watch(cwd, cloudClient, machineID, func(reloaded *policy.LoadedPolicy) {
+		if reloaded.Policy != nil {
+			srv.UpdatePolicy(reloaded.Policy)
+		} else {
+			srv.UpdatePolicy(&policy.Policy{})
+		}
+		fmt.Printf("[policy] reloaded from %s\n", reloaded.Path)
+	})
+	if watchErr != nil {
+		fmt.Fprintf(os.Stderr, "  avviso: hot-reload non disponibile: %v\n", watchErr)
+		stopWatch = func() {}
+	}
+	defer stopWatch()
 
 	// sync cloud periodico ogni 30s — fail-open, errori ignorati
 	if _, err := os.Stat(cloudCfgPath); err == nil {
@@ -100,82 +137,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// resolvePolicyPath implementa la priorità di caricamento policy:
-// 1. cloud configurato → GET /api/policy?machine_id=X → scrivi e usa
-// 2. policyPath locale/globale se esiste
-// 3. fallback ~/.night-agent/policy.yaml
-// 4. errore
-func resolvePolicyPath(cloudCfgPath, policyPath string) (string, error) {
-	// 1. prova cloud
-	if cloudPolicy, err := fetchCloudPolicy(cloudCfgPath, policyPath); err == nil && cloudPolicy != "" {
-		return cloudPolicy, nil
-	}
+// resolvePolicyPath e fetchCloudPolicy non più necessari — sostituiti da policy.Load()
+// Mantenute per compatibilità con altri comandi che potrebbero usarle.
 
-	// 2. policy nella config dir corrente
-	if _, err := os.Stat(policyPath); err == nil {
-		return policyPath, nil
-	}
-
-	// 3. fallback globale
-	globalDir, err := configdir.Global()
-	if err == nil {
-		globalPolicy := filepath.Join(globalDir, "policy.yaml")
-		if _, err := os.Stat(globalPolicy); err == nil {
-			return globalPolicy, nil
-		}
-	}
-
-	// 4. niente trovato
-	return "", fmt.Errorf("policy non trovata — esegui 'nightagent init'")
-}
-
-// fetchCloudPolicy scarica la policy dal cloud se configurato.
-// Se la risposta è non-nulla la scrive su policyPath e restituisce il path.
-// Restituisce errore (silenzioso) se non configurato o la chiamata fallisce.
-func fetchCloudPolicy(cloudCfgPath, policyPath string) (string, error) {
-	cfg, err := cloudconfig.Load(cloudCfgPath)
-	if err != nil || !cfg.Connected || cfg.Token == "" {
-		return "", fmt.Errorf("cloud non configurato")
-	}
-
-	url := cfg.Endpoint + "/api/policy?machine_id=" + cfg.MachineID
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+func globalPolicyPath() (string, error) {
+	dir, err := configdir.Global()
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+cfg.Token)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("cloud policy: status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	if len(body) == 0 {
-		return "", fmt.Errorf("cloud policy: risposta vuota")
-	}
-
-	// valida il YAML prima di scriverlo — se non è una policy valida, ignora
-	if _, err := policy.LoadBytes(body); err != nil {
-		return "", fmt.Errorf("cloud policy non valida: %w", err)
-	}
-
-	// scrivi policy su disco e usala
-	if err := os.MkdirAll(filepath.Dir(policyPath), 0700); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(policyPath, body, 0600); err != nil {
-		return "", err
-	}
-
-	fmt.Printf("night-agent policy cloud  : scaricata da %s\n", cfg.Endpoint)
-	return policyPath, nil
+	return filepath.Join(dir, "policy.yaml"), nil
 }

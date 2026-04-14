@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/pietroperona/night-agent/internal/audit"
@@ -37,6 +38,7 @@ type Response struct {
 // Server è il daemon che ascolta su Unix socket e valuta le richieste.
 type Server struct {
 	socketPath  string
+	mu          sync.RWMutex
 	policy      *policy.Policy
 	policyPath  string
 	logger      *audit.Logger
@@ -45,6 +47,13 @@ type Server struct {
 	scorer      *scorer.Scorer
 	suggestions *suggestions.Engine
 	logPath     string // path del log JSONL per leggere la storia eventi
+}
+
+// UpdatePolicy sostituisce la policy attiva in modo thread-safe.
+func (s *Server) UpdatePolicy(p *policy.Policy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.policy = p
 }
 
 // NewServer crea il daemon e apre il Unix socket.
@@ -120,7 +129,9 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
+	s.mu.RLock()
 	result := s.policy.Evaluate(action.ToPolicyAction())
+	s.mu.RUnlock()
 
 	// "ask" a runtime si comporta come "block" — la configurazione avviene durante init
 	decision := result.Decision

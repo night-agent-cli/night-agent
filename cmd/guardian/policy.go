@@ -76,7 +76,7 @@ func runPolicyList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	p, err := policy.Load(path)
+	p, err := policy.LoadFile(path)
 	if err != nil {
 		return fmt.Errorf("errore caricamento policy: %w", err)
 	}
@@ -98,7 +98,7 @@ func runPolicyToggle(cmd *cobra.Command, args []string) error {
 	ruleID := args[0]
 
 	// leggi stato attuale per dare feedback
-	p, err := policy.Load(path)
+	p, err := policy.LoadFile(path)
 	if err != nil {
 		return err
 	}

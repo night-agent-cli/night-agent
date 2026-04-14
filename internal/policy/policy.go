@@ -67,7 +67,8 @@ type EvalResult struct {
 	Sandbox  *SandboxConfig // non nil se la regola ha decision: sandbox
 }
 
-func Load(path string) (*Policy, error) {
+// LoadFile carica la policy da un file YAML.
+func LoadFile(path string) (*Policy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("impossibile leggere il file di policy: %w", err)
@@ -147,7 +148,7 @@ func Save(path string, p *Policy) error {
 // AppendAllowRule aggiunge una regola allow permanente nella policy YAML per
 // il comando esatto dato. Se una regola identica esiste già, non duplica.
 func AppendAllowRule(policyPath, agentName, command string) error {
-	p, err := Load(policyPath)
+	p, err := LoadFile(policyPath)
 	if err != nil {
 		return err
 	}
