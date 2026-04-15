@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -174,9 +175,13 @@ func FormatSource(lp *LoadedPolicy) string {
 	}
 }
 
+// cloudPollInterval è l'intervallo di polling per aggiornamenti policy dal cloud.
+const cloudPollInterval = 60 * time.Second
+
 // Watch avvia un watcher fs su workDir per nightagent-policy.yaml.
 // Quando il file viene creato, modificato o eliminato, chiama onChange con
 // la policy ricalcolata (usando Load con gli stessi parametri).
+// Se client != nil, ricontrolla la policy cloud ogni 60 secondi.
 // Ritorna una funzione stop per il cleanup. Fail-open: errori del watcher
 // vengono ignorati silenziosamente.
 func Watch(workDir string, client CloudClient, machineID string, onChange func(*LoadedPolicy)) (func(), error) {
@@ -194,10 +199,23 @@ func Watch(workDir string, client CloudClient, machineID string, onChange func(*
 
 	go func() {
 		defer watcher.Close()
+
+		var cloudTicker *time.Ticker
+		var cloudTickC <-chan time.Time
+		if client != nil && machineID != "" {
+			cloudTicker = time.NewTicker(cloudPollInterval)
+			cloudTickC = cloudTicker.C
+			defer cloudTicker.Stop()
+		}
+
 		for {
 			select {
 			case <-stop:
 				return
+			case <-cloudTickC:
+				if lp, err := Load(workDir, client, machineID); err == nil {
+					onChange(lp)
+				}
 			case event, ok := <-watcher.Events:
 				if !ok {
 					return
