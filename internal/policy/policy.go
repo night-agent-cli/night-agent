@@ -88,7 +88,58 @@ func LoadBytes(data []byte) (*Policy, error) {
 	return &p, nil
 }
 
+// hardcodedRules sono regole immutabili che proteggono l'integrità del sistema.
+// Vengono valutate PRIMA delle regole YAML e non possono essere sovrascritte.
+var hardcodedRules = []Rule{
+	{
+		ID:        "_protect_policy_write_shell",
+		MatchType: MatchGlob,
+		When: Condition{
+			ActionType: string(ActionTypeShell),
+			CommandMatches: []string{
+				"* > *nightagent*",
+				"* >> *nightagent*",
+				"* > *.nightagent*",
+				"* >> *.nightagent*",
+				"tee *nightagent*",
+				"tee *.nightagent*",
+				"sed * nightagent*",
+			},
+		},
+		Decision: DecisionBlock,
+		Reason:   "modifica diretta dei file policy non consentita — usa 'nightagent policy edit'",
+	},
+	{
+		ID:        "_protect_policy_write_file",
+		MatchType: MatchGlob,
+		When: Condition{
+			ActionType: string(ActionTypeFile),
+			PathMatches: []string{
+				"*nightagent-policy*",
+				"*.nightagent*policy*",
+				"*night-agent*policy*",
+			},
+		},
+		Decision: DecisionBlock,
+		Reason:   "modifica diretta dei file policy non consentita — usa 'nightagent policy edit'",
+	},
+}
+
 func (p *Policy) Evaluate(action Action) EvalResult {
+	// Regole immutabili — valutate prima di qualsiasi regola YAML
+	for _, rule := range hardcodedRules {
+		if rule.When.ActionType != action.Type {
+			continue
+		}
+		if matches(rule, action) {
+			return EvalResult{
+				Decision: rule.Decision,
+				RuleID:   rule.ID,
+				Reason:   rule.Reason,
+			}
+		}
+	}
+
 	for _, rule := range p.Rules {
 		if rule.When.ActionType != action.Type {
 			continue

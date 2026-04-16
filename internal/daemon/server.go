@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -19,10 +20,13 @@ import (
 )
 
 // Request è il messaggio inviato dalla shell hook al daemon.
+// Type può essere "eval" (default) o "policy_write".
 type Request struct {
-	Command   string `json:"command"`
-	WorkDir   string `json:"work_dir"`
-	AgentName string `json:"agent_name"`
+	Type       string `json:"type,omitempty"`        // "eval" (default) | "policy_write"
+	Command    string `json:"command"`
+	WorkDir    string `json:"work_dir"`
+	AgentName  string `json:"agent_name"`
+	PolicyYAML string `json:"policy_yaml,omitempty"` // per type="policy_write"
 }
 
 // Response è la risposta del daemon alla shell hook.
@@ -37,16 +41,18 @@ type Response struct {
 
 // Server è il daemon che ascolta su Unix socket e valuta le richieste.
 type Server struct {
-	socketPath  string
-	mu          sync.RWMutex
-	policy      *policy.Policy
-	policyPath  string
-	logger      *audit.Logger
-	listener    net.Listener
-	quit        chan struct{}
-	scorer      *scorer.Scorer
-	suggestions *suggestions.Engine
-	logPath     string // path del log JSONL per leggere la storia eventi
+	socketPath      string
+	mu              sync.RWMutex
+	policy          *policy.Policy
+	policyPath      string
+	logger          *audit.Logger
+	listener        net.Listener
+	quit            chan struct{}
+	scorer          *scorer.Scorer
+	suggestions     *suggestions.Engine
+	logPath         string    // path del log JSONL per leggere la storia eventi
+	lastWrittenHash [32]byte  // hash SHA256 dell'ultima policy scritta dal daemon
+	hashMu          sync.Mutex
 }
 
 // UpdatePolicy sostituisce la policy attiva in modo thread-safe.
@@ -54,6 +60,48 @@ func (s *Server) UpdatePolicy(p *policy.Policy) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.policy = p
+}
+
+// SetInitialHash imposta l'hash dell'ultima policy scritta (chiamato al boot
+// con il contenuto del file già presente su disco).
+func (s *Server) SetInitialHash(content []byte) {
+	h := sha256.Sum256(content)
+	s.hashMu.Lock()
+	s.lastWrittenHash = h
+	s.hashMu.Unlock()
+}
+
+// IsTrustedFileContent verifica che il contenuto del file corrisponda all'ultimo
+// hash scritto dal daemon. Usato da Watch() per rifiutare modifiche esterne.
+func (s *Server) IsTrustedFileContent(content []byte) bool {
+	h := sha256.Sum256(content)
+	s.hashMu.Lock()
+	defer s.hashMu.Unlock()
+	return h == s.lastWrittenHash
+}
+
+// WritePolicyFile valida il YAML, aggiorna l'hash trusted, scrive su disco e
+// aggiorna la policy in-memory. È l'unico canale autorizzato per modificare
+// i file di policy su disco.
+func (s *Server) WritePolicyFile(yamlContent []byte) error {
+	p, err := policy.LoadBytes(yamlContent)
+	if err != nil {
+		return fmt.Errorf("policy YAML non valido: %w", err)
+	}
+	if s.policyPath == "" {
+		return fmt.Errorf("policyPath non configurato nel daemon")
+	}
+	// aggiorna hash trusted prima di scrivere
+	h := sha256.Sum256(yamlContent)
+	s.hashMu.Lock()
+	s.lastWrittenHash = h
+	s.hashMu.Unlock()
+
+	if err := os.WriteFile(s.policyPath, yamlContent, 0600); err != nil {
+		return fmt.Errorf("errore scrittura policy: %w", err)
+	}
+	s.UpdatePolicy(p)
+	return nil
 }
 
 // NewServer crea il daemon e apre il Unix socket.
@@ -120,6 +168,12 @@ func (s *Server) handle(conn net.Conn) {
 	var req Request
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
 		writeError(conn, "richiesta non valida")
+		return
+	}
+
+	// Gestione policy_write: solo dal CLI nightagent policy edit
+	if req.Type == "policy_write" {
+		s.handlePolicyWrite(conn, req)
 		return
 	}
 
@@ -249,6 +303,21 @@ func (s *Server) handle(conn net.Conn) {
 
 	_ = s.logger.Write(event)
 	logDecision(decision, req.Command, result.Reason)
+	_ = json.NewEncoder(conn).Encode(resp)
+}
+
+// handlePolicyWrite gestisce le richieste di aggiornamento policy dal CLI.
+func (s *Server) handlePolicyWrite(conn net.Conn, req Request) {
+	if req.PolicyYAML == "" {
+		writeError(conn, "policy_yaml vuoto")
+		return
+	}
+	if err := s.WritePolicyFile([]byte(req.PolicyYAML)); err != nil {
+		writeError(conn, err.Error())
+		return
+	}
+	fmt.Println("[policy] aggiornata via 'nightagent policy edit'")
+	resp := Response{Decision: string(policy.DecisionAllow), Reason: "policy aggiornata"}
 	_ = json.NewEncoder(conn).Encode(resp)
 }
 

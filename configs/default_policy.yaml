@@ -41,6 +41,22 @@ rules:
     decision: ask
     reason: "push su branch protetto richiede conferma"
 
+  # --- Protezione integrità policy ---
+
+  - id: protect_policy_write
+    when:
+      action_type: shell
+      command_matches:
+        - "* > *nightagent*"
+        - "* >> *nightagent*"
+        - "tee *nightagent*"
+        - "sed * nightagent*"
+        - "* > *.nightagent*"
+        - "* >> *.nightagent*"
+    match_type: glob
+    decision: block
+    reason: "modifica diretta dei file policy non consentita — usa 'nightagent policy edit'"
+
   # --- Regole sandbox (Ciclo 2) ---
 
   - id: sandbox_shell_scripts

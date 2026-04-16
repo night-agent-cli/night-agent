@@ -184,7 +184,11 @@ const cloudPollInterval = 60 * time.Second
 // Se client != nil, ricontrolla la policy cloud ogni 60 secondi.
 // Ritorna una funzione stop per il cleanup. Fail-open: errori del watcher
 // vengono ignorati silenziosamente.
-func Watch(workDir string, client CloudClient, machineID string, onChange func(*LoadedPolicy)) (func(), error) {
+//
+// isTrustedFile (opzionale): se fornita, viene chiamata con il contenuto del file
+// prima di ricaricare. Se restituisce false, la modifica viene rifiutata con un
+// avviso di sicurezza. Non viene applicata agli aggiornamenti cloud.
+func Watch(workDir string, client CloudClient, machineID string, onChange func(*LoadedPolicy), isTrustedFile ...func([]byte) bool) (func(), error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return func() {}, fmt.Errorf("fsnotify: %w", err)
@@ -193,6 +197,11 @@ func Watch(workDir string, client CloudClient, machineID string, onChange func(*
 	if err := watcher.Add(workDir); err != nil {
 		watcher.Close()
 		return func() {}, fmt.Errorf("watch %s: %w", workDir, err)
+	}
+
+	var trustChecker func([]byte) bool
+	if len(isTrustedFile) > 0 {
+		trustChecker = isTrustedFile[0]
 	}
 
 	stop := make(chan struct{})
@@ -213,6 +222,7 @@ func Watch(workDir string, client CloudClient, machineID string, onChange func(*
 			case <-stop:
 				return
 			case <-cloudTickC:
+				// Aggiornamenti cloud: sempre attendibili
 				if lp, err := Load(workDir, client, machineID); err == nil {
 					onChange(lp)
 				}
@@ -225,6 +235,15 @@ func Watch(workDir string, client CloudClient, machineID string, onChange func(*
 					continue
 				}
 				if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) || event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+					// Verifica integrità: rifiuta modifiche esterne non autorizzate
+					if trustChecker != nil && (event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) {
+						data, readErr := os.ReadFile(event.Name)
+						if readErr == nil && !trustChecker(data) {
+							fmt.Fprintf(os.Stderr,
+								"[security] policy file modificato esternamente — modifica ignorata. Usa 'nightagent policy edit'\n")
+							continue
+						}
+					}
 					if lp, err := Load(workDir, client, machineID); err == nil {
 						onChange(lp)
 					}

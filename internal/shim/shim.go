@@ -16,6 +16,7 @@ var ShimmedCommands = []string{
 	"bash", "sh", "pip", "pip3",
 	"npm", "brew",
 	"python", "python3",
+	"tee",
 }
 
 const ShimBinaryName = "guardian-shim"

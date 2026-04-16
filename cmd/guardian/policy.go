@@ -2,10 +2,14 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pietroperona/night-agent/internal/policy"
 	"github.com/pietroperona/night-agent/internal/policyeditor"
@@ -55,11 +59,18 @@ var policyRemoveCmd = &cobra.Command{
 	RunE:  runPolicyRemove,
 }
 
+var policyEditCmd = &cobra.Command{
+	Use:   "edit",
+	Short: "Modifica la policy nell'editor di sistema ($EDITOR)",
+	RunE:  runPolicyEdit,
+}
+
 func init() {
 	policyCmd.AddCommand(policyListCmd)
 	policyCmd.AddCommand(policyToggleCmd)
 	policyCmd.AddCommand(policyAddCmd)
 	policyCmd.AddCommand(policyRemoveCmd)
+	policyCmd.AddCommand(policyEditCmd)
 	rootCmd.AddCommand(policyCmd)
 }
 
@@ -197,5 +208,120 @@ func runPolicyRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("  %s✓%s regola '%s' rimossa\n\n", ansiGreen, ansiReset, ruleID)
+	return nil
+}
+
+func runPolicyEdit(cmd *cobra.Command, args []string) error {
+	path, err := policyPath()
+	if err != nil {
+		return err
+	}
+
+	// leggi policy corrente (crea file vuoto se non esiste)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			data = []byte("version: 1\nrules: []\n")
+		} else {
+			return fmt.Errorf("impossibile leggere la policy: %w", err)
+		}
+	}
+
+	// scrivi in temp file
+	tmpFile, err := os.CreateTemp("", "nightagent-policy-*.yaml")
+	if err != nil {
+		return fmt.Errorf("impossibile creare file temporaneo: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		return err
+	}
+	tmpFile.Close()
+
+	// apri editor
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "nano"
+	}
+
+	editorCmd := exec.Command(editor, tmpPath)
+	editorCmd.Stdin = os.Stdin
+	editorCmd.Stdout = os.Stdout
+	editorCmd.Stderr = os.Stderr
+	if err := editorCmd.Run(); err != nil {
+		return fmt.Errorf("editor terminato con errore: %w", err)
+	}
+
+	// leggi contenuto modificato
+	newData, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return err
+	}
+
+	// valida YAML prima di applicare
+	if _, err := policy.LoadBytes(newData); err != nil {
+		return fmt.Errorf("%spolicy non valida%s: %w", ansiRed, ansiReset, err)
+	}
+
+	// invia al daemon via socket (canale autorizzato)
+	cfgDir, err := resolveConfigDir()
+	if err != nil {
+		return err
+	}
+	socketPath := filepath.Join(cfgDir, "night-agent.sock")
+
+	if err := sendPolicyUpdate(socketPath, newData); err != nil {
+		// daemon non disponibile: scrivi direttamente con avviso
+		fmt.Fprintf(os.Stderr, "  %savviso%s: daemon non raggiungibile, scrivo direttamente su disco\n",
+			ansiDim, ansiReset)
+		if err2 := os.WriteFile(path, newData, 0600); err2 != nil {
+			return fmt.Errorf("errore scrittura policy: %w", err2)
+		}
+	}
+
+	fmt.Printf("\n  %s✓%s policy aggiornata\n\n", ansiGreen, ansiReset)
+	return nil
+}
+
+// policyWriteRequest è il payload inviato al daemon per aggiornare la policy.
+type policyWriteRequest struct {
+	Type       string `json:"type"`
+	PolicyYAML string `json:"policy_yaml"`
+}
+
+// policyWriteResponse è la risposta del daemon alla richiesta policy_write.
+type policyWriteResponse struct {
+	Decision string `json:"decision"`
+	Reason   string `json:"reason"`
+}
+
+// sendPolicyUpdate invia il nuovo YAML al daemon via Unix socket.
+// Restituisce errore se il daemon non è raggiungibile o rifiuta la policy.
+func sendPolicyUpdate(socketPath string, yamlContent []byte) error {
+	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	if err != nil {
+		return fmt.Errorf("daemon non raggiungibile: %w", err)
+	}
+	defer conn.Close()
+
+	req := policyWriteRequest{
+		Type:       "policy_write",
+		PolicyYAML: string(yamlContent),
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return fmt.Errorf("errore invio richiesta: %w", err)
+	}
+
+	var resp policyWriteResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return fmt.Errorf("errore lettura risposta: %w", err)
+	}
+
+	if resp.Decision == "block" {
+		return fmt.Errorf("daemon ha rifiutato: %s", resp.Reason)
+	}
 	return nil
 }

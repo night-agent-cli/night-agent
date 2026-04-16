@@ -97,11 +97,19 @@ func runStart(_ *cobra.Command, _ []string) error {
 	}
 	srv.WithLogPath(logPath)
 
+	// imposta hash iniziale per il trust checker (file già presente su disco)
+	if lp.Source != policy.SourceNone && lp.Path != "" {
+		if data, readErr := os.ReadFile(lp.Path); readErr == nil {
+			srv.SetInitialHash(data)
+		}
+	}
+
 	fmt.Printf("night-agent in ascolto su %s\n", socketPath)
 
 	go srv.Serve()
 
-	// hot-reload: watch cwd per nightagent-policy.yaml
+	// hot-reload: watch cwd per nightagent-policy.yaml.
+	// isTrustedFileContent impedisce al daemon di ricaricare modifiche esterne non autorizzate.
 	stopWatch, watchErr := policy.Watch(cwd, cloudClient, machineID, func(reloaded *policy.LoadedPolicy) {
 		if reloaded.Policy != nil {
 			srv.UpdatePolicy(reloaded.Policy)
@@ -109,7 +117,7 @@ func runStart(_ *cobra.Command, _ []string) error {
 			srv.UpdatePolicy(&policy.Policy{})
 		}
 		fmt.Printf("[policy] reloaded from %s\n", reloaded.Path)
-	})
+	}, srv.IsTrustedFileContent)
 	if watchErr != nil {
 		fmt.Fprintf(os.Stderr, "  avviso: hot-reload non disponibile: %v\n", watchErr)
 		stopWatch = func() {}
