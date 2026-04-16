@@ -217,7 +217,12 @@ func copyDefaultPolicy(dest string) error {
 		if err != nil {
 			continue
 		}
-		return os.WriteFile(dest, data, 0600)
+		if err := os.WriteFile(dest, data, 0600); err != nil {
+			return err
+		}
+		// lock immediato — chflags uchg blocca scrittura da subprocess non-interattivi
+		_ = policy.LockFile(dest)
+		return nil
 	}
 	return fmt.Errorf("policy di default non trovata")
 }
