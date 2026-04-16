@@ -1,0 +1,82 @@
+version: 1
+
+rules:
+  - id: block_sudo
+    when:
+      action_type: shell
+      command_matches: ["sudo *", "*/sudo *"]
+    match_type: glob
+    decision: block
+    reason: "sudo è disabilitato per gli agenti AI"
+
+  - id: block_rm_rf
+    when:
+      action_type: shell
+      command_matches: ["rm -rf *", "rm -fr *"]
+    match_type: glob
+    decision: ask
+    reason: "cancellazione ricorsiva richiede conferma"
+
+  - id: block_curl_pipe
+    when:
+      action_type: shell
+      command_matches: ["curl * | *", "wget * | *"]
+    match_type: glob
+    decision: block
+    reason: "esecuzione di script remoti non è consentita"
+
+  - id: block_sensitive_paths
+    when:
+      action_type: file
+      path_matches: ["~/.ssh/*", "~/.aws/*", "**/.env", "**/.env.*"]
+    match_type: glob
+    decision: block
+    reason: "accesso a file sensibili non è consentito"
+
+  - id: ask_git_push_main
+    when:
+      action_type: git
+      command_matches: ["git push * main", "git push * master", "git push --force *"]
+    match_type: glob
+    decision: ask
+    reason: "push su branch protetto richiede conferma"
+
+  # --- Protezione integrità policy ---
+
+  - id: protect_policy_write
+    when:
+      action_type: shell
+      command_matches:
+        - "* > *nightagent*"
+        - "* >> *nightagent*"
+        - "tee *nightagent*"
+        - "sed * nightagent*"
+        - "* > *.nightagent*"
+        - "* >> *.nightagent*"
+    match_type: glob
+    decision: block
+    reason: "modifica diretta dei file policy non consentita — usa 'nightagent policy edit'"
+
+  # --- Regole sandbox (Ciclo 2) ---
+
+  - id: sandbox_shell_scripts
+    when:
+      action_type: shell
+      command_matches: ["bash *.sh", "sh *.sh", "zsh *.sh"]
+    match_type: glob
+    decision: sandbox
+    sandbox:
+      image: "alpine:3.20"
+      network: "none"
+    reason: "script shell eseguito in ambiente isolato"
+
+  - id: sandbox_python_scripts
+    when:
+      action_type: shell
+      command_matches: ["python *.py", "python3 *.py"]
+    match_type: glob
+    decision: sandbox
+    sandbox:
+      image: "python:3.12-alpine"
+      network: "none"
+    reason: "script Python eseguito in ambiente isolato"

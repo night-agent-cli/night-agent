@@ -97,8 +97,12 @@ func (s *Server) WritePolicyFile(yamlContent []byte) error {
 	s.lastWrittenHash = h
 	s.hashMu.Unlock()
 
-	if err := os.WriteFile(s.policyPath, yamlContent, 0600); err != nil {
-		return fmt.Errorf("errore scrittura policy: %w", err)
+	// rimuovi lock temporaneamente, scrivi, ri-applica lock
+	_ = policy.UnlockFile(s.policyPath)
+	writeErr := os.WriteFile(s.policyPath, yamlContent, 0600)
+	_ = policy.RelockFile(s.policyPath)
+	if writeErr != nil {
+		return fmt.Errorf("errore scrittura policy: %w", writeErr)
 	}
 	s.UpdatePolicy(p)
 	return nil

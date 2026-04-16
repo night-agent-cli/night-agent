@@ -51,6 +51,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("policy: %s\n", policyPath)
 
+	// lock policy file: imposta user-immutable flag (chflags uchg)
+	// impedisce scrittura da qualsiasi processo inclusi subprocess non-interattivi
+	if err := lockPolicyFile(policyPath); err != nil {
+		fmt.Printf("avviso: lock policy file fallito (%v)\n", err)
+	} else {
+		fmt.Printf("policy lock: immutabile (usa 'nightagent policy edit' per modificare)\n")
+	}
+
 	rcPath, err := detectZshrc()
 	if err != nil {
 		return err
@@ -232,4 +240,10 @@ func isZsh() bool {
 	}
 	_, err := exec.LookPath("zsh")
 	return err == nil
+}
+
+// lockPolicyFile imposta il flag user-immutable (chflags uchg) sul file policy.
+// Blocca scrittura da qualsiasi processo, inclusi subprocess non-interattivi.
+func lockPolicyFile(path string) error {
+	return policy.LockFile(path)
 }

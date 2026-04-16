@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 
@@ -104,6 +105,8 @@ var hardcodedRules = []Rule{
 				"tee *nightagent*",
 				"tee *.nightagent*",
 				"sed * nightagent*",
+				"chflags nouchg *nightagent*",
+				"chflags nouchg *night-agent*",
 			},
 		},
 		Decision: DecisionBlock,
@@ -194,6 +197,22 @@ func Save(path string, p *Policy) error {
 		return fmt.Errorf("errore serializzazione policy: %w", err)
 	}
 	return os.WriteFile(path, data, 0600)
+}
+
+// LockFile imposta il flag user-immutable (chflags uchg) sul file.
+// Blocca scrittura da qualsiasi processo inclusi subprocess non-interattivi.
+func LockFile(path string) error {
+	return exec.Command("chflags", "uchg", path).Run()
+}
+
+// UnlockFile rimuove il flag user-immutable prima di una scrittura autorizzata.
+func UnlockFile(path string) error {
+	return exec.Command("chflags", "nouchg", path).Run()
+}
+
+// RelockFile re-imposta il flag user-immutable dopo una scrittura autorizzata.
+func RelockFile(path string) error {
+	return exec.Command("chflags", "uchg", path).Run()
 }
 
 // AppendAllowRule aggiunge una regola allow permanente nella policy YAML per
