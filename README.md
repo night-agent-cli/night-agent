@@ -28,26 +28,32 @@ Il daemon gira in background, avviato automaticamente al login tramite LaunchAge
 
 ## Installazione
 
-### Via Homebrew (consigliato)
+### Metodo rapido (consigliato)
 
 ```bash
-brew tap pietroperona/night-agent
-brew install night-agent
+curl -sSL https://raw.githubusercontent.com/pietroperona/night-agent/main/install.sh | bash
 ```
 
 Poi inizializza:
 
 ```bash
-night-agent init
+nightagent init
 ```
 
 Per le funzionalità sandbox installa [Docker Desktop](https://www.docker.com/products/docker-desktop/) e avvialo almeno una volta.
+
+> **macOS Gatekeeper**: se vedi "cannot be opened because Apple cannot verify the developer", esegui:
+> ```bash
+> sudo xattr -d com.apple.quarantine /usr/local/bin/nightagent
+> sudo xattr -d com.apple.quarantine /usr/local/lib/night-agent/guardian-shim
+> sudo xattr -d com.apple.quarantine /usr/local/lib/night-agent/guardian-intercept.dylib
+> ```
 
 ### Build da sorgente
 
 #### Prerequisiti
 
-- macOS (arm64 o x86_64)
+- macOS arm64 (Apple Silicon)
 - Go 1.21+
 - Clang (incluso in Xcode Command Line Tools)
 - Docker Desktop (per la sandbox)
@@ -66,14 +72,14 @@ make all
 
 Produce tre binari nella root del progetto:
 
-- `night-agent` — CLI principale
+- `nightagent` — CLI principale
 - `guardian-shim` — binario C per l'interception PATH
 - `guardian-intercept.dylib` — libreria per DYLD injection (agenti senza Hardened Runtime)
 
 #### Setup
 
 ```bash
-./night-agent init
+./nightagent init
 ```
 
 Il wizard guida nella configurazione delle regole di policy. Al termine:

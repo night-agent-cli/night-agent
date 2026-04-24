@@ -15,3 +15,6 @@
 
 # Night Agent config locale
 .nightagent/
+
+# Documenti privati (non versionati)
+docs/private/
