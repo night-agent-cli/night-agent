@@ -10,6 +10,21 @@ import (
 	"os"
 )
 
+// SignFunc è la funzione iniettata nel Logger per firmare eventi.
+// Riceve l'evento da firmare, restituisce la firma (sig), la sorgente ("local"/"remote") e un eventuale errore.
+type SignFunc func(e Event) (sig, source string, err error)
+
+// LocalSignFunc restituisce una SignFunc che firma con il Signer locale.
+func LocalSignFunc(s *Signer) SignFunc {
+	return func(e Event) (string, string, error) {
+		signed, err := s.Sign(e)
+		if err != nil {
+			return "", "", err
+		}
+		return signed.Sig, "local", nil
+	}
+}
+
 // Signer gestisce la chiave HMAC-SHA256 per firmare e verificare eventi.
 // La chiave è un segreto locale a 32 byte conservato in ~/.night-agent/signing.key.
 // Con la futura cloud dashboard la chiave pubblica potrà essere caricata per
@@ -53,9 +68,11 @@ func NewSigner(keyPath string) (*Signer, error) {
 }
 
 // Sign aggiunge la firma HMAC-SHA256 all'evento e lo restituisce.
-// La firma copre la serializzazione JSON dell'evento con Sig="".
+// La firma copre la serializzazione JSON dell'evento con Sig="" e SigSource=""
+// (sig_source è campo informativo, non incluso nel payload firmato).
 func (s *Signer) Sign(e Event) (Event, error) {
-	e.Sig = "" // azzera prima di firmare
+	e.Sig = ""        // azzera prima di firmare
+	e.SigSource = "" // non incluso nel payload firmato
 	payload, err := json.Marshal(e)
 	if err != nil {
 		return e, fmt.Errorf("serializzazione evento: %w", err)
@@ -65,6 +82,7 @@ func (s *Signer) Sign(e Event) (Event, error) {
 }
 
 // Verify controlla che la firma dell'evento sia valida.
+// sig_source non fa parte del payload firmato: viene azzerato prima della verifica.
 func (s *Signer) Verify(e Event) error {
 	if e.Sig == "" {
 		return fmt.Errorf("evento senza firma (sig assente)")
@@ -75,6 +93,7 @@ func (s *Signer) Verify(e Event) error {
 
 	sig := e.Sig
 	e.Sig = ""
+	e.SigSource = "" // non incluso nel payload firmato
 	payload, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("serializzazione evento: %w", err)

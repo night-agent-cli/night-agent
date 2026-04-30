@@ -73,11 +73,11 @@ func runStart(_ *cobra.Command, _ []string) error {
 		p = &policy.Policy{}
 	}
 
-	// usa signed logger se la chiave esiste, altrimenti logger base
+	// costruisci il logger con la SignFunc appropriata (remote se cloud connesso, locale altrimenti)
 	keyPath := filepath.Join(cfgDir, "signing.key")
 	var logger *audit.Logger
-	if signer, sigErr := audit.NewSigner(keyPath); sigErr == nil {
-		logger, err = audit.NewSignedLogger(logPath, signer)
+	if signFn, _, buildErr := buildSignFunc(cloudCfgPath, keyPath); buildErr == nil {
+		logger, err = audit.NewSignedLoggerWithFunc(logPath, signFn)
 	} else {
 		logger, err = audit.NewLogger(logPath)
 	}
@@ -147,6 +147,30 @@ func runStart(_ *cobra.Command, _ []string) error {
 	fmt.Println("\nnight-agent fermato")
 	srv.Stop()
 	return nil
+}
+
+// buildSignFunc costruisce la SignFunc appropriata in base alla config cloud.
+// Se il cloud è connesso, usa RemoteSigner con fallback locale.
+// Altrimenti usa LocalSignFunc con il signer locale.
+// Restituisce anche il Signer locale (può essere nil se la chiave non esiste).
+func buildSignFunc(cloudCfgPath, keyPath string) (audit.SignFunc, *audit.Signer, error) {
+	cfg, err := cloudconfig.Load(cloudCfgPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	localSigner, _ := audit.NewSigner(keyPath)
+	// Se la chiave locale non esiste, localSigner è nil — ok per modalità remote-only
+
+	if cfg.IsConnected() {
+		remoteSigner := cloudconfig.NewRemoteSigner(cfg)
+		return remoteSigner.SignFunc(localSigner), localSigner, nil
+	}
+
+	if localSigner == nil {
+		return nil, nil, fmt.Errorf("nessuna chiave locale e cloud non connesso")
+	}
+	return audit.LocalSignFunc(localSigner), localSigner, nil
 }
 
 // resolvePolicyPath e fetchCloudPolicy non più necessari — sostituiti da policy.Load()

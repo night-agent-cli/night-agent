@@ -92,6 +92,11 @@ func Disconnect(path string) error {
 	return Save(path, cfg)
 }
 
+// IsConnected restituisce true se il cloud è configurato e connesso.
+func (c *Config) IsConnected() bool {
+	return c != nil && c.Connected && c.Token != "" && c.MachineID != ""
+}
+
 // UpdateCursor aggiorna il cursore e il timestamp dell'ultimo sync.
 func UpdateCursor(path, cursor string) error {
 	cfg, err := Load(path)

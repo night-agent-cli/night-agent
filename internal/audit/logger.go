@@ -34,8 +34,9 @@ type Event struct {
 	AnomalyDetected bool     `json:"anomaly_detected,omitempty"`
 	Suggestions     []string `json:"suggestions,omitempty"`
 	// Signed audit trail — catena hash (blockchain-like)
-	PrevHash string `json:"prev_hash,omitempty"` // hash SHA256 dell'evento precedente
-	Sig      string `json:"sig,omitempty"`        // HMAC-SHA256 di tutto l'evento (incluso prev_hash)
+	PrevHash  string `json:"prev_hash,omitempty"`   // hash SHA256 dell'evento precedente
+	Sig       string `json:"sig,omitempty"`          // HMAC-SHA256 di tutto l'evento (incluso prev_hash)
+	SigSource string `json:"sig_source,omitempty"`  // "local" | "remote"
 }
 
 // Filter specifica criteri di filtro per ReadFiltered.
@@ -48,44 +49,59 @@ type Filter struct {
 type Logger struct {
 	file     *os.File
 	enc      *json.Encoder
-	signer   *Signer // nil = nessuna firma
-	lastHash string  // hash dell'ultimo evento scritto (per catena)
+	signFn   SignFunc // nil = nessuna firma
+	lastHash string   // hash dell'ultimo evento scritto (per catena)
+	signer   *Signer  // mantenuto per retrocompatibilità con VerifyAll
 }
 
 // NewLogger apre (o crea) il file di log e restituisce un Logger senza firma.
 func NewLogger(path string) (*Logger, error) {
-	return newLogger(path, nil)
-}
-
-// NewSignedLogger apre (o crea) il file di log con firma HMAC-SHA256 attiva.
-func NewSignedLogger(path string, signer *Signer) (*Logger, error) {
-	return newLogger(path, signer)
-}
-
-func newLogger(path string, signer *Signer) (*Logger, error) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("impossibile aprire il file di log: %w", err)
 	}
 	enc := json.NewEncoder(f)
 	enc.SetEscapeHTML(false)
-	return &Logger{file: f, enc: enc, signer: signer}, nil
+	return &Logger{file: f, enc: enc}, nil
+}
+
+// NewSignedLogger apre (o crea) il file di log con firma HMAC-SHA256 attiva.
+func NewSignedLogger(path string, signer *Signer) (*Logger, error) {
+	l, err := NewSignedLoggerWithFunc(path, LocalSignFunc(signer))
+	if err != nil {
+		return nil, err
+	}
+	l.signer = signer // mantieni per VerifyAll
+	return l, nil
+}
+
+// NewSignedLoggerWithFunc apre il file di log e usa la SignFunc fornita per firmare.
+func NewSignedLoggerWithFunc(path string, fn SignFunc) (*Logger, error) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("impossibile aprire il file di log: %w", err)
+	}
+	enc := json.NewEncoder(f)
+	enc.SetEscapeHTML(false)
+	return &Logger{file: f, enc: enc, signFn: fn}, nil
 }
 
 // Write scrive un evento nel log. Se l'evento non ha timestamp, lo imposta ora.
-// Se il logger ha un signer, aggiunge prev_hash (catena) e firma HMAC-SHA256.
+// Se il logger ha una signFn, aggiunge prev_hash (catena) e firma l'evento.
 func (l *Logger) Write(event Event) error {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
-	if l.signer != nil {
+	if l.signFn != nil {
 		event.PrevHash = l.lastHash
-		signed, err := l.signer.Sign(event)
+		event.Sig = "" // azzera prima di firmare
+		sig, source, err := l.signFn(event)
 		if err != nil {
 			return fmt.Errorf("firma evento: %w", err)
 		}
-		event = signed
-		l.lastHash = event.Sig // usa la firma come hash dell'evento per il prossimo
+		event.Sig = sig
+		event.SigSource = source
+		l.lastHash = sig
 	}
 	if err := l.enc.Encode(event); err != nil {
 		return fmt.Errorf("errore scrittura evento: %w", err)

@@ -223,3 +223,43 @@ func TestVerifyAll_DetectsTamperedLine(t *testing.T) {
 		t.Error("VerifyAll dovrebbe rilevare manomissione")
 	}
 }
+
+func TestSignFunc_Local(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "signing.key")
+	audit.GenerateKey(keyPath)
+	signer, _ := audit.NewSigner(keyPath)
+
+	fn := audit.LocalSignFunc(signer)
+	e := audit.Event{ID: "test-1", Decision: "allow"}
+	sig, source, err := fn(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig == "" {
+		t.Error("sig vuota")
+	}
+	if source != "local" {
+		t.Errorf("source=%s, want local", source)
+	}
+}
+
+func TestLogger_WriteSigSource(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "signing.key")
+	logPath := filepath.Join(dir, "audit.jsonl")
+	audit.GenerateKey(keyPath)
+	signer, _ := audit.NewSigner(keyPath)
+
+	logger, _ := audit.NewSignedLoggerWithFunc(logPath, audit.LocalSignFunc(signer))
+	logger.Write(audit.Event{ID: "1", Decision: "allow"})
+	logger.Close()
+
+	events, _ := audit.ReadAll(logPath)
+	if len(events) == 0 {
+		t.Fatal("nessun evento")
+	}
+	if events[0].SigSource != "local" {
+		t.Errorf("sig_source=%q, want local", events[0].SigSource)
+	}
+}
