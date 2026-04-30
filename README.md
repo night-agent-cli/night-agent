@@ -1,4 +1,4 @@
-# Night Agent
+# Night Agent CLI
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
@@ -280,7 +280,7 @@ make all
 - Claude Code e altri agenti con Hardened Runtime non sono intercettabili via `DYLD_INSERT_LIBRARIES`. Night Agent usa PATH shims come approccio principale, compatibile con qualsiasi agente.
 - Intercetta comandi eseguiti via shell. Syscall dirette o chiamate native non passano per il layer di interception.
 - La sandbox richiede Docker Desktop installato e in esecuzione. Se Docker non e disponibile, le regole `sandbox` fanno fail-safe su `block`.
-- Richiede macOS arm64. Linux e Windows non sono supportati.
+- Richiede macOS arm64. Linux e Windows al momento non sono ancora supportati.
 
 ---
 
