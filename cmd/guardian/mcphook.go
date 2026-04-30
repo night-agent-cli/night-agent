@@ -1,12 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/night-agent-cli/night-agent/internal/mcphook"
 	"github.com/spf13/cobra"
@@ -48,7 +45,7 @@ func runMCPHook(cmd *cobra.Command, args []string) error {
 	cfgDir, _ := resolveConfigDir()
 	socketPath := filepath.Join(cfgDir, "night-agent.sock")
 
-	decision, reason := queryDaemon(socketPath, req)
+	decision, reason := mcphook.QueryDaemon(socketPath, req)
 
 	code := mcphook.ExitCode(decision)
 	if code != 0 {
@@ -61,26 +58,3 @@ func runMCPHook(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func queryDaemon(socketPath string, req mcphook.DaemonRequest) (decision, reason string) {
-	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
-	if err != nil {
-		return "allow", ""
-	}
-	defer conn.Close()
-
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
-
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return "allow", ""
-	}
-
-	var resp struct {
-		Decision string `json:"decision"`
-		Reason   string `json:"reason"`
-	}
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		return "allow", ""
-	}
-
-	return resp.Decision, resp.Reason
-}

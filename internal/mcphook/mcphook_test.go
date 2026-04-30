@@ -123,3 +123,25 @@ func TestParseStdin_MalformedJSON(t *testing.T) {
 		t.Error("atteso errore su JSON malformato")
 	}
 }
+
+func TestQueryDaemon_DaemonNotRunning_Blocks(t *testing.T) {
+	decision, reason := mcphook.QueryDaemon("/nonexistent/night-agent.sock", mcphook.DaemonRequest{
+		Command:   "sudo rm -rf /",
+		AgentName: "claude-code",
+	})
+	if decision != "block" {
+		t.Errorf("daemon non raggiungibile: atteso block, got %q", decision)
+	}
+	if !strings.Contains(reason, "daemon") {
+		t.Errorf("reason deve menzionare 'daemon': got %q", reason)
+	}
+}
+
+func TestQueryDaemon_DaemonNotRunning_ExitCodeIsTwo(t *testing.T) {
+	decision, _ := mcphook.QueryDaemon("/nonexistent/night-agent.sock", mcphook.DaemonRequest{
+		Command: "ls /etc",
+	})
+	if mcphook.ExitCode(decision) != 2 {
+		t.Errorf("daemon non raggiungibile: atteso exit code 2, got %d", mcphook.ExitCode(decision))
+	}
+}

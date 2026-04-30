@@ -22,7 +22,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"strings"
+	"time"
 )
 
 // HookInput è il JSON inviato da Claude Code su stdin al PreToolUse hook.
@@ -154,6 +156,33 @@ func ExitCode(decision string) int {
 	default:
 		return 2
 	}
+}
+
+// QueryDaemon invia la richiesta al daemon via Unix socket e restituisce la
+// decisione e il motivo. Se il daemon non è raggiungibile, blocca (fail-closed):
+// restituisce "block" con messaggio esplicito invece di permettere l'esecuzione.
+func QueryDaemon(socketPath string, req DaemonRequest) (decision, reason string) {
+	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	if err != nil {
+		return "block", "daemon non in ascolto — avvia nightagent start"
+	}
+	defer conn.Close()
+
+	conn.SetDeadline(time.Now().Add(3 * time.Second))
+
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return "block", "daemon non in ascolto — errore invio richiesta"
+	}
+
+	var resp struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return "block", "daemon non in ascolto — errore lettura risposta"
+	}
+
+	return resp.Decision, resp.Reason
 }
 
 func stringField(m map[string]interface{}, key string) string {
