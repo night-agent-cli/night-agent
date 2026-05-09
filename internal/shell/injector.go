@@ -12,8 +12,9 @@ const (
 )
 
 // hookTemplate è la funzione zsh iniettata nel profilo shell.
-// Usa preexec (eseguita prima di ogni comando) per intercettare i comandi
-// e inviarli al daemon via socat/nc sul Unix socket.
+// Usa preexec (eseguita prima di ogni comando) per intercettare i comandi.
+// Un singolo processo Python gestisce encoding JSON, comunicazione Unix socket
+// e parsing della risposta — 4x più efficiente del template precedente.
 const hookTemplate = `
 # BEGIN nightagent
 # Night Agent — hook di intercettazione comandi (non modificare manualmente)
@@ -22,23 +23,44 @@ _nightagent_preexec() {
   local cmd="$1"
   local workdir="$(pwd)"
   if [[ -S "$_nightagent_socket" ]]; then
-    local payload="{\"command\":$(printf '%%s' "$cmd" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"work_dir\":\"$workdir\",\"agent_name\":\"\"}"
-    local response
-    response=$(echo "$payload" | nc -U "$_nightagent_socket" 2>/dev/null)
-    local decision
-    decision=$(echo "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("decision","allow"))' 2>/dev/null)
+    local result
+    result=$(python3 - "$cmd" "$workdir" "$_nightagent_socket" 2>/dev/null <<'__NIGHTAGENT_PY__'
+import json, socket as _s, sys
+cmd, workdir, sock_path = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    payload = json.dumps({"command": cmd, "work_dir": workdir, "agent_name": ""})
+    s = _s.socket(_s.AF_UNIX, _s.SOCK_STREAM)
+    s.settimeout(2)
+    s.connect(sock_path)
+    s.sendall(payload.encode())
+    s.shutdown(_s.SHUT_WR)
+    data = b""
+    while True:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    s.close()
+    resp = json.loads(data)
+    print(resp.get("decision", "allow"))
+    print(resp.get("reason", ""))
+    print(resp.get("output", ""))
+except Exception:
+    print("allow")
+    print("")
+    print("")
+__NIGHTAGENT_PY__
+)
+    local decision reason output
+    decision=$(printf '%%s' "$result" | head -1)
+    reason=$(printf '%%s' "$result" | sed -n '2p')
+    output=$(printf '%%s' "$result" | tail -n +3)
     if [[ "$decision" == "block" ]]; then
-      local reason
-      reason=$(echo "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("reason",""))' 2>/dev/null)
       echo "nightagent: comando bloccato — $reason" >&2
       return 1
     fi
     if [[ "$decision" == "sandbox" ]]; then
-      local reason
-      reason=$(echo "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("reason",""))' 2>/dev/null)
       echo "nightagent: esecuzione in sandbox — $reason" >&2
-      local output
-      output=$(echo "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("output",""), end="")' 2>/dev/null)
       [[ -n "$output" ]] && echo "$output"
       return 1
     fi

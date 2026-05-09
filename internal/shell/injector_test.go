@@ -105,6 +105,31 @@ func TestIsInjected_False(t *testing.T) {
 	}
 }
 
+// TestHookTemplate_SinglePythonInvocation verifica che il template iniettato
+// usi al massimo una invocazione di python3 (invece delle 3 precedenti).
+func TestHookTemplate_SinglePythonInvocation(t *testing.T) {
+	zshrc := writeTempRC(t, "")
+	_, err := shell.Inject(zshrc, testSocketPath)
+	if err != nil {
+		t.Fatalf("iniezione fallita: %v", err)
+	}
+	content, _ := os.ReadFile(zshrc)
+	count := strings.Count(string(content), "python3")
+	if count > 1 {
+		t.Errorf("hook contiene %d invocazioni di python3, atteso ≤1", count)
+	}
+}
+
+// TestHookTemplate_NoDependencyOnNc verifica che l'hook non dipenda da nc.
+func TestHookTemplate_NoDependencyOnNc(t *testing.T) {
+	zshrc := writeTempRC(t, "")
+	_, _ = shell.Inject(zshrc, testSocketPath)
+	content, _ := os.ReadFile(zshrc)
+	if strings.Contains(string(content), "nc -U") {
+		t.Error("hook non deve dipendere da 'nc -U' (rimpiazzato da socket Python)")
+	}
+}
+
 func writeTempRC(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
