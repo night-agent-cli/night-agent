@@ -5,6 +5,7 @@
 package scorer
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
@@ -34,6 +35,35 @@ type Result struct {
 	Level           RiskLevel
 	Signals         []string // segnali che hanno contribuito al punteggio
 	AnomalyDetected bool     // true se rilevato burst anomalo di azioni
+}
+
+// sensitivePathRule abbina un pattern sensibile usando word-boundary regex
+// per evitare falsi positivi su substring parziali (es. "token" in "mytoken.go").
+type sensitivePathRule struct {
+	name string
+	re   *regexp.Regexp
+}
+
+var sensitivePathRules []sensitivePathRule
+
+func init() {
+	specs := []struct{ name, pattern string }{
+		// Dot-prefixed: match come componente di path (non dentro un nome più lungo)
+		{".env", `(\W|^)\.env(\W|$)`},
+		{".aws", `(\W|^)\.aws(\W|$)`},
+		{".ssh", `(\W|^)\.ssh(\W|$)`},
+		// Parole chiave: match solo come token isolato
+		{"id_rsa", `(\W|^)id_rsa(\W|$)`},
+		{"credentials", `(\W|^)credentials(\W|$)`},
+		{"secrets", `(\W|^)secrets(\W|$)`},
+		{"token", `(\W|^)token(\W|$)`},
+	}
+	for _, s := range specs {
+		sensitivePathRules = append(sensitivePathRules, sensitivePathRule{
+			name: s.name,
+			re:   regexp.MustCompile(s.pattern),
+		})
+	}
 }
 
 // Scorer valuta il rischio contestuale di un'azione.
@@ -93,13 +123,13 @@ func (s *Scorer) Score(action Action, events []audit.Event) Result {
 		signals = append(signals, "push su branch principale")
 	}
 
-	// accesso a path sensibili
-	sensitivePaths := []string{".env", ".aws", ".ssh", "id_rsa", "credentials", "secrets", "token"}
+	// accesso a path sensibili — usa word-boundary regex per evitare falsi
+	// positivi su substring parziali (es. "token" in "mytoken.go")
 	targetStr := strings.ToLower(action.Command + " " + action.Path)
-	for _, sp := range sensitivePaths {
-		if strings.Contains(targetStr, sp) {
+	for _, rule := range sensitivePathRules {
+		if rule.re.MatchString(targetStr) {
 			total += 0.3
-			signals = append(signals, "accesso path sensibile: "+sp)
+			signals = append(signals, "accesso path sensibile: "+rule.name)
 			break
 		}
 	}
