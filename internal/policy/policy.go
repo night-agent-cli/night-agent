@@ -48,6 +48,10 @@ type Rule struct {
 	Decision  Decision       `yaml:"decision"`
 	Reason    string         `yaml:"reason"`
 	Sandbox   *SandboxConfig `yaml:"sandbox,omitempty"`
+
+	// pre-compilate da LoadBytes per regole match_type: regex
+	compiledCommandRe []*regexp.Regexp
+	compiledPathRe    []*regexp.Regexp
 }
 
 type Policy struct {
@@ -78,6 +82,8 @@ func LoadFile(path string) (*Policy, error) {
 }
 
 // LoadBytes parsa e valida una policy da slice di byte YAML.
+// Per le regole con match_type: regex, pre-compila le pattern e restituisce
+// errore immediatamente se una regex è malformata.
 func LoadBytes(data []byte) (*Policy, error) {
 	var p Policy
 	if err := yaml.Unmarshal(data, &p); err != nil {
@@ -86,7 +92,35 @@ func LoadBytes(data []byte) (*Policy, error) {
 	if p.Version == 0 {
 		return nil, fmt.Errorf("campo 'version' mancante o zero nella policy")
 	}
+	if err := compileRegexRules(p.Rules); err != nil {
+		return nil, err
+	}
 	return &p, nil
+}
+
+// compileRegexRules pre-compila le pattern regex di tutte le regole.
+// Restituisce errore al primo pattern non valido.
+func compileRegexRules(rules []Rule) error {
+	for i := range rules {
+		if rules[i].MatchType != MatchRegex {
+			continue
+		}
+		for _, pat := range rules[i].When.CommandMatches {
+			re, err := regexp.Compile(pat)
+			if err != nil {
+				return fmt.Errorf("regex non valida nella regola %q (command_matches %q): %w", rules[i].ID, pat, err)
+			}
+			rules[i].compiledCommandRe = append(rules[i].compiledCommandRe, re)
+		}
+		for _, pat := range rules[i].When.PathMatches {
+			re, err := regexp.Compile(pat)
+			if err != nil {
+				return fmt.Errorf("regex non valida nella regola %q (path_matches %q): %w", rules[i].ID, pat, err)
+			}
+			rules[i].compiledPathRe = append(rules[i].compiledPathRe, re)
+		}
+	}
+	return nil
 }
 
 // hardcodedRules sono regole immutabili che proteggono l'integrità del sistema.
@@ -169,8 +203,12 @@ func matches(rule Rule, action Action) bool {
 
 	// match su command
 	if len(rule.When.CommandMatches) > 0 && action.Command != "" {
-		for _, pattern := range rule.When.CommandMatches {
-			if matchPattern(mt, pattern, action.Command, false) {
+		for i, pattern := range rule.When.CommandMatches {
+			var compiled *regexp.Regexp
+			if mt == MatchRegex && i < len(rule.compiledCommandRe) {
+				compiled = rule.compiledCommandRe[i]
+			}
+			if matchPattern(mt, pattern, action.Command, false, compiled) {
 				return true
 			}
 		}
@@ -179,8 +217,12 @@ func matches(rule Rule, action Action) bool {
 
 	// match su path
 	if len(rule.When.PathMatches) > 0 && action.Path != "" {
-		for _, pattern := range rule.When.PathMatches {
-			if matchPattern(mt, pattern, action.Path, true) {
+		for i, pattern := range rule.When.PathMatches {
+			var compiled *regexp.Regexp
+			if mt == MatchRegex && i < len(rule.compiledPathRe) {
+				compiled = rule.compiledPathRe[i]
+			}
+			if matchPattern(mt, pattern, action.Path, true, compiled) {
 				return true
 			}
 		}
@@ -274,9 +316,13 @@ func sanitizeID(s string) string {
 // matchPattern valuta un pattern contro un valore.
 // Per command_matches usa glob senza separatori (il * matcha spazi e /).
 // Per path_matches usa glob con filepath.Separator (il * non matcha /).
-func matchPattern(mt MatchType, pattern, value string, isPath bool) bool {
+// compiled è opzionale: se non nil, viene usata al posto della compilazione runtime.
+func matchPattern(mt MatchType, pattern, value string, isPath bool, compiled *regexp.Regexp) bool {
 	switch mt {
 	case MatchRegex:
+		if compiled != nil {
+			return compiled.MatchString(value)
+		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			return false

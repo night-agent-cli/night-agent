@@ -294,6 +294,52 @@ rules:
 	}
 }
 
+// TestLoadBytes_RegexPrecompile verifica che regole regex vengano valutate
+// correttamente dopo la pre-compilazione avvenuta in LoadBytes.
+func TestLoadBytes_RegexPrecompile(t *testing.T) {
+	yaml := `version: 1
+rules:
+  - id: test_regex
+    when:
+      action_type: shell
+      command_matches: ["curl .*api\\.example\\.com"]
+    match_type: regex
+    decision: block
+    reason: test`
+
+	p, err := policy.LoadBytes([]byte(yaml))
+	if err != nil {
+		t.Fatalf("regex valida non deve dare errore: %v", err)
+	}
+	result := p.Evaluate(policy.Action{Type: "shell", Command: "curl api.example.com"})
+	if result.Decision != policy.DecisionBlock {
+		t.Errorf("atteso block, ottenuto %s", result.Decision)
+	}
+	resultMiss := p.Evaluate(policy.Action{Type: "shell", Command: "curl other.com"})
+	if resultMiss.Decision != policy.DecisionAllow {
+		t.Errorf("atteso allow per URL non matching, ottenuto %s", resultMiss.Decision)
+	}
+}
+
+// TestLoadBytes_InvalidRegexFails verifica che una regex malformata
+// restituisca errore a load-time anziché essere ignorata silenziosamente.
+func TestLoadBytes_InvalidRegexFails(t *testing.T) {
+	yaml := `version: 1
+rules:
+  - id: bad_regex
+    when:
+      action_type: shell
+      command_matches: ["[invalid(regex"]
+    match_type: regex
+    decision: block
+    reason: test`
+
+	_, err := policy.LoadBytes([]byte(yaml))
+	if err == nil {
+		t.Error("regex malformata deve restituire errore in LoadBytes")
+	}
+}
+
 // --- helpers ---
 
 func writeTempYAML(t *testing.T, content string) string {
