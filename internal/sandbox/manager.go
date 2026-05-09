@@ -151,6 +151,9 @@ func BuildDockerArgs(command string, cfg Config) []string {
 	if cfg.WorkDir != "" {
 		args = append(args, "-v", cfg.WorkDir+":/workspace:rw")
 		args = append(args, "-w", "/workspace")
+		// oscura directory credenziali accessibili tramite il mount workspace
+		args = append(args, "--tmpfs", "/workspace/.ssh")
+		args = append(args, "--tmpfs", "/workspace/.aws")
 	}
 
 	// /tmp host montato in sola lettura — permette accesso a file temporanei

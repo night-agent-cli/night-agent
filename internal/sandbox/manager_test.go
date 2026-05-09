@@ -170,6 +170,49 @@ func TestBuildDockerArgs_CommandWrappedInShell(t *testing.T) {
 	}
 }
 
+// TestBuildDockerArgs_CredentialShielding verifica che i path credenziali
+// vengano oscurati via tmpfs quando è presente un WorkDir.
+func TestBuildDockerArgs_CredentialShielding(t *testing.T) {
+	cfg := sandbox.Config{
+		Image:   "alpine:3.20",
+		Network: "none",
+		WorkDir: "/home/user/myproject",
+	}
+	args := sandbox.BuildDockerArgs("ls", cfg)
+
+	sshShielded := false
+	awsShielded := false
+	for i, a := range args {
+		if a == "--tmpfs" && i+1 < len(args) {
+			if args[i+1] == "/workspace/.ssh" {
+				sshShielded = true
+			}
+			if args[i+1] == "/workspace/.aws" {
+				awsShielded = true
+			}
+		}
+	}
+	if !sshShielded {
+		t.Errorf("--tmpfs /workspace/.ssh mancante, args: %v", args)
+	}
+	if !awsShielded {
+		t.Errorf("--tmpfs /workspace/.aws mancante, args: %v", args)
+	}
+}
+
+// TestBuildDockerArgs_NoCredentialShielding_WithoutWorkDir verifica che
+// senza WorkDir non vengano aggiunti tmpfs (nessun workspace montato).
+func TestBuildDockerArgs_NoCredentialShielding_WithoutWorkDir(t *testing.T) {
+	cfg := sandbox.Config{Image: "alpine:3.20", Network: "none"}
+	args := sandbox.BuildDockerArgs("ls", cfg)
+
+	for i, a := range args {
+		if a == "--tmpfs" && i+1 < len(args) {
+			t.Errorf("--tmpfs inatteso senza WorkDir: args[%d+1]=%s, tutti args: %v", i, args[i+1], args)
+		}
+	}
+}
+
 // --- Integration tests (richiedono Docker attivo) ---
 
 func TestExecute_SimpleCommand(t *testing.T) {
