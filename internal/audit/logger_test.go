@@ -158,3 +158,54 @@ func TestLogger_FilterByActionType(t *testing.T) {
 		t.Errorf("atteso 1 evento git, ottenuti %d", len(events))
 	}
 }
+
+// TestReadFilteredWithStats_CountsCorruptLines verifica che le righe JSON
+// malformate vengano conteggiate e segnalate anziché ignorate silenziosamente.
+func TestReadFilteredWithStats_CountsCorruptLines(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "corrupt.jsonl")
+
+	// scrivi 1 riga valida + 2 corrotte + 1 valida
+	content := `{"id":"1","decision":"allow","action_type":"shell"}` + "\n" +
+		`{invalid json` + "\n" +
+		`not json at all` + "\n" +
+		`{"id":"2","decision":"block","action_type":"git"}` + "\n"
+
+	if err := os.WriteFile(logPath, []byte(content), 0600); err != nil {
+		t.Fatalf("errore scrittura file test: %v", err)
+	}
+
+	events, corrupted, err := audit.ReadFilteredWithStats(logPath, audit.Filter{})
+	if err != nil {
+		t.Fatalf("errore inatteso: %v", err)
+	}
+	if len(events) != 2 {
+		t.Errorf("attesi 2 eventi validi, ottenuti %d", len(events))
+	}
+	if corrupted != 2 {
+		t.Errorf("attese 2 righe corrotte, ottenute %d", corrupted)
+	}
+}
+
+// TestReadFiltered_BackwardCompatible verifica che la firma esistente di
+// ReadFiltered non sia cambiata e continui a funzionare sui file con corruzione.
+func TestReadFiltered_BackwardCompatible(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "mixed.jsonl")
+
+	content := `{"id":"ok","decision":"allow","action_type":"shell"}` + "\n" +
+		`CORRUPT` + "\n"
+
+	if err := os.WriteFile(logPath, []byte(content), 0600); err != nil {
+		t.Fatalf("errore scrittura file test: %v", err)
+	}
+
+	// deve restituire solo gli eventi validi, senza errore
+	events, err := audit.ReadFiltered(logPath, audit.Filter{})
+	if err != nil {
+		t.Fatalf("ReadFiltered non deve fallire con righe corrotte: %v", err)
+	}
+	if len(events) != 1 {
+		t.Errorf("atteso 1 evento valido, ottenuti %d", len(events))
+	}
+}

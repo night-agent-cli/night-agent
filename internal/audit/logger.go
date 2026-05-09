@@ -116,18 +116,26 @@ func (l *Logger) Close() error {
 
 // ReadAll legge tutti gli eventi dal file JSONL.
 func ReadAll(path string) ([]Event, error) {
-	return ReadFiltered(path, Filter{})
+	events, _, err := ReadFilteredWithStats(path, Filter{})
+	return events, err
 }
 
 // ReadFiltered legge gli eventi applicando un filtro opzionale.
+// Le righe JSON malformate vengono saltate senza fallire.
 func ReadFiltered(path string, filter Filter) ([]Event, error) {
+	events, _, err := ReadFilteredWithStats(path, filter)
+	return events, err
+}
+
+// ReadFilteredWithStats legge gli eventi come ReadFiltered e restituisce
+// anche il numero di righe JSON malformate incontrate nel file.
+func ReadFilteredWithStats(path string, filter Filter) (events []Event, corrupted int, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("impossibile aprire il log: %w", err)
+		return nil, 0, fmt.Errorf("impossibile aprire il log: %w", err)
 	}
 	defer f.Close()
 
-	var events []Event
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -136,16 +144,17 @@ func ReadFiltered(path string, filter Filter) ([]Event, error) {
 		}
 		var e Event
 		if err := json.Unmarshal(line, &e); err != nil {
-			continue // riga corrotta: salta senza fallire
+			corrupted++
+			continue
 		}
 		if matchesFilter(e, filter) {
 			events = append(events, e)
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("errore lettura log: %w", err)
+		return nil, corrupted, fmt.Errorf("errore lettura log: %w", err)
 	}
-	return events, nil
+	return events, corrupted, nil
 }
 
 func matchesFilter(e Event, f Filter) bool {
