@@ -11,12 +11,15 @@ const (
 )
 
 // Resolve restituisce la config dir da usare.
-// Se .nightagent/ esiste nella cwd → usa quella (config locale del progetto).
+// Se .nightagent/ esiste nella cwd E contiene policy.yaml → usa quella (config locale).
+// Controlla policy.yaml per non scambiare la dir del socket daemon con una config locale.
 // Altrimenti → fallback su ~/.night-agent/ (config globale).
 func Resolve(cwd string) (string, error) {
 	local := filepath.Join(cwd, LocalDirName)
 	if info, err := os.Stat(local); err == nil && info.IsDir() {
-		return local, nil
+		if _, err := os.Stat(filepath.Join(local, "policy.yaml")); err == nil {
+			return local, nil
+		}
 	}
 	return Global()
 }
