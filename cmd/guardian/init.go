@@ -8,6 +8,7 @@ import (
 
 	"github.com/night-agent-cli/night-agent/internal/audit"
 	"github.com/night-agent-cli/night-agent/internal/claudehook"
+	"github.com/night-agent-cli/night-agent/internal/defaultpolicy"
 	"github.com/night-agent-cli/night-agent/internal/launchagent"
 	"github.com/night-agent-cli/night-agent/internal/policy"
 	"github.com/night-agent-cli/night-agent/internal/shell"
@@ -208,23 +209,13 @@ func copyDefaultPolicy(dest string) error {
 	if _, err := os.Stat(dest); err == nil {
 		return nil // già esiste, non sovrascrivere
 	}
-	candidates := []string{
-		"configs/default_policy.yaml",
-		filepath.Join(filepath.Dir(os.Args[0]), "configs", "default_policy.yaml"),
+	data := defaultpolicy.DefaultPolicyBytes
+	if err := os.WriteFile(dest, data, 0600); err != nil {
+		return err
 	}
-	for _, src := range candidates {
-		data, err := os.ReadFile(src)
-		if err != nil {
-			continue
-		}
-		if err := os.WriteFile(dest, data, 0600); err != nil {
-			return err
-		}
-		// lock immediato — chflags uchg blocca scrittura da subprocess non-interattivi
-		_ = policy.LockFile(dest)
-		return nil
-	}
-	return fmt.Errorf("policy di default non trovata")
+	// lock immediato — chflags uchg blocca scrittura da subprocess non-interattivi
+	_ = policy.LockFile(dest)
+	return nil
 }
 
 func detectZshrc() (string, error) {

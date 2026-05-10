@@ -14,6 +14,10 @@ func TestResolve_LocalExists_ReturnsLocal(t *testing.T) {
 	if err := os.Mkdir(local, 0700); err != nil {
 		t.Fatal(err)
 	}
+	// deve esistere policy.yaml per essere considerata config locale valida
+	if err := os.WriteFile(filepath.Join(local, "policy.yaml"), []byte("version: 1\nrules: []\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := configdir.Resolve(dir)
 	if err != nil {
@@ -21,6 +25,27 @@ func TestResolve_LocalExists_ReturnsLocal(t *testing.T) {
 	}
 	if got != local {
 		t.Errorf("want %q, got %q", local, got)
+	}
+}
+
+// TestResolve_IgnoresDirWithoutPolicy verifica che una dir .nightagent senza
+// policy.yaml (es. quella creata dal daemon per il socket) non venga scambiata
+// per una config locale di progetto.
+func TestResolve_IgnoresDirWithoutPolicy(t *testing.T) {
+	dir := t.TempDir()
+	local := filepath.Join(dir, configdir.LocalDirName)
+	if err := os.Mkdir(local, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// solo daemon.sock, nessuna policy.yaml
+
+	got, err := configdir.Resolve(dir)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	global, _ := configdir.Global()
+	if got != global {
+		t.Errorf("atteso fallback global %q, got %q", global, got)
 	}
 }
 
