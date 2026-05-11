@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -63,9 +65,15 @@ func printTable(events []audit.Event) error {
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	// scrivi in buffer per non rompere l'allineamento tabwriter con ANSI codes
+	var buf bytes.Buffer
+	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "TIMESTAMP\tDECISIONE\tRISCHIO\tTIPO\tCOMANDO\tMOTIVO")
 	fmt.Fprintln(w, "---------\t---------\t-------\t----\t-------\t------")
+
+	// traccia quali righe sono block (header = 2 righe, poi eventi)
+	blockRows := make(map[int]bool)
+	row := 2
 	for _, e := range events {
 		ts := e.Timestamp.Format(time.DateTime)
 		cmd := e.Command
@@ -74,12 +82,32 @@ func printTable(events []audit.Event) error {
 		}
 		risk := riskLabel(e.RiskLevel, e.RiskScore, e.AnomalyDetected)
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", ts, e.Decision, risk, e.ActionType, cmd, e.Reason)
-		// stampa suggerimenti inline se presenti
+		if e.Decision == "block" || e.Decision == "ask" {
+			blockRows[row] = true
+		}
+		row++
 		for _, h := range e.Suggestions {
 			fmt.Fprintf(w, "\t\t\t\t→ %s\t\n", h)
+			row++
 		}
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+
+	// post-process: colora in rosso le righe block/ask
+	scanner := bufio.NewScanner(&buf)
+	lineNum := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		if blockRows[lineNum] {
+			fmt.Println(ansiRed + line + ansiReset)
+		} else {
+			fmt.Println(line)
+		}
+		lineNum++
+	}
+	return scanner.Err()
 }
 
 // riskLabel formatta il livello di rischio per la tabella.
